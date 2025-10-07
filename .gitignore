@@ -184,6 +184,11 @@ desktop.ini
 config_personal.py
 settings_local.py
 
+# PyInstaller build files
+build/
+dist/
+*.spec
+
 # Performance profiling
 *.prof
 *.profile
