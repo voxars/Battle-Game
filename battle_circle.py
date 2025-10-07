@@ -15,6 +15,145 @@ from typing import List, Tuple, Dict, Optional
 import time
 
 
+class Confetti:
+    """Classe pour un confetti individuel."""
+    
+    def __init__(self, x: float, y: float, color: Tuple[int, int, int]):
+        """Initialise un confetti."""
+        self.x = x
+        self.y = y
+        self.color = color
+        
+        # Vitesse aléatoire
+        self.vx = random.uniform(-150, 150)
+        self.vy = random.uniform(-300, -100)
+        
+        # Gravité et friction
+        self.gravity = 500
+        self.friction = 0.98
+        
+        # Propriétés visuelles
+        self.size = random.randint(3, 8)
+        self.rotation = random.uniform(0, 360)
+        self.rotation_speed = random.uniform(-360, 360)
+        
+        # Durée de vie
+        self.life = 1.0
+        self.fade_speed = random.uniform(0.3, 0.8)
+        
+    def update(self, dt: float):
+        """Met à jour la position et l'état du confetti."""
+        # Physique
+        self.vx *= self.friction
+        self.vy += self.gravity * dt
+        
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+        
+        # Rotation
+        self.rotation += self.rotation_speed * dt
+        
+        # Durée de vie
+        self.life -= self.fade_speed * dt
+        
+    def draw(self, screen: pygame.Surface):
+        """Dessine le confetti."""
+        if self.life <= 0:
+            return
+            
+        # Calculer l'alpha basé sur la durée de vie
+        alpha = max(0, min(255, int(self.life * 255)))
+        
+        # Créer une surface avec transparence
+        size = max(1, int(self.size * self.life))
+        
+        # Dessiner un petit rectangle coloré
+        color_with_alpha = (*self.color, alpha)
+        
+        # Simple rectangle pour représenter le confetti
+        rect = pygame.Rect(int(self.x - size/2), int(self.y - size/2), size, size)
+        
+        # Appliquer une couleur légèrement variée
+        varied_color = (
+            max(0, min(255, self.color[0] + random.randint(-20, 20))),
+            max(0, min(255, self.color[1] + random.randint(-20, 20))),
+            max(0, min(255, self.color[2] + random.randint(-20, 20)))
+        )
+        
+        pygame.draw.rect(screen, varied_color, rect)
+        
+    def is_alive(self) -> bool:
+        """Vérifie si le confetti est encore vivant."""
+        return self.life > 0 and self.y < Config.HAUTEUR + 50
+
+
+class ConfettiSystem:
+    """Système de gestion des confettis."""
+    
+    def __init__(self):
+        """Initialise le système de confettis."""
+        self.confettis: List[Confetti] = []
+        self.is_active = False
+        
+    def start_celebration(self, winner_color: Tuple[int, int, int], center_x: float, center_y: float):
+        """Lance la célébration avec confettis."""
+        self.is_active = True
+        self.confettis.clear()
+        
+        # Créer plusieurs vagues de confettis
+        for wave in range(3):
+            for i in range(30):  # 30 confettis par vague
+                # Position légèrement aléatoire autour du centre
+                x = center_x + random.uniform(-100, 100)
+                y = center_y + random.uniform(-50, 50)
+                
+                # Variations de couleur basées sur la couleur du gagnant
+                color_variations = [
+                    winner_color,
+                    (min(255, winner_color[0] + 50), min(255, winner_color[1] + 50), min(255, winner_color[2] + 50)),
+                    (max(0, winner_color[0] - 50), max(0, winner_color[1] - 50), max(0, winner_color[2] - 50)),
+                    (255, 255, 255),  # Blanc
+                    (255, 255, 100)   # Jaune doré
+                ]
+                
+                color = random.choice(color_variations)
+                confetti = Confetti(x, y, color)
+                
+                # Délai pour les vagues
+                confetti.delay = wave * 0.3
+                self.confettis.append(confetti)
+    
+    def update(self, dt: float):
+        """Met à jour tous les confettis."""
+        if not self.is_active:
+            return
+            
+        # Mettre à jour les confettis existants
+        for confetti in self.confettis[:]:
+            if hasattr(confetti, 'delay') and confetti.delay > 0:
+                confetti.delay -= dt
+                continue
+                
+            confetti.update(dt)
+            
+            # Supprimer les confettis morts
+            if not confetti.is_alive():
+                self.confettis.remove(confetti)
+        
+        # Arrêter le système si plus de confettis
+        if not self.confettis:
+            self.is_active = False
+    
+    def draw(self, screen: pygame.Surface):
+        """Dessine tous les confettis."""
+        if not self.is_active:
+            return
+            
+        for confetti in self.confettis:
+            if not hasattr(confetti, 'delay') or confetti.delay <= 0:
+                confetti.draw(screen)
+
+
 class Config:
     """Classe de configuration centralisée pour tous les paramètres du jeu."""
     
@@ -895,6 +1034,9 @@ class BattleGame:
         self.target_update_counter = 0  # Pour réduire la fréquence de mise à jour
         self.last_ui_update = 0
         
+        # Système de confettis
+        self.confetti_system = ConfettiSystem()
+        
         self.init_players()
         self.init_targets()
         self.create_background_surface()
@@ -1259,6 +1401,9 @@ class BattleGame:
         for target in self.targets.values():
             target.update_visual_effects()
         
+        # Mise à jour du système de confettis
+        self.confetti_system.update(1.0 / Config.FPS)
+        
         # Vérifier l'élimination des joueurs
         self.check_player_elimination()
         
@@ -1282,6 +1427,8 @@ class BattleGame:
                     print("Appuyez sur Échap pour quitter ou fermez la fenêtre.")
                     self.victory_announced = True
                     self.game_ended = True  # Arrêter complètement le jeu
+                    # Lancer les confettis de la couleur du gagnant
+                    self.confetti_system.start_celebration(player.color, self.center_x, self.center_y)
                 self.ui_needs_update = True  # Forcer la mise à jour de l'UI
     
     def determine_winner_by_time(self):
@@ -1294,6 +1441,8 @@ class BattleGame:
                 self.winner_by_time = winner.id
                 print(f"Temps écoulé ! Joueur {winner.id + 1} remporte la partie avec {winner.score} points !")
                 print("Appuyez sur Échap pour quitter ou fermez la fenêtre.")
+                # Lancer les confettis de la couleur du gagnant
+                self.confetti_system.start_celebration(winner.color, self.center_x, self.center_y)
             else:
                 print("Temps écoulé ! Aucun joueur actif.")
             self.victory_announced = True
@@ -1404,6 +1553,9 @@ class BattleGame:
         # Dessiner les joueurs
         for player in self.players.values():
             player.draw(self.screen, self.font_small)
+        
+        # Dessiner les confettis
+        self.confetti_system.draw(self.screen)
         
         # Dessiner la popup du vainqueur si le jeu est terminé
         if self.game_ended:
