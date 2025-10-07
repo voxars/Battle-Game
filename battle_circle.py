@@ -544,19 +544,19 @@ class ConfigScreen:
         self.input_active = None  # Quel champ est en cours d'édition
         self.input_text = ""
         
-        # Boutons
+        # Boutons avec positions ajustées pour éviter les superpositions
         self.buttons = {
-            'start': pygame.Rect(Config.LARGEUR // 2 - 100, Config.HAUTEUR - 100, 200, 50),
-            'players_minus': pygame.Rect(200, 200, 30, 30),
-            'players_plus': pygame.Rect(300, 200, 30, 30),
-            'time_minus': pygame.Rect(200, 250, 30, 30),
-            'time_plus': pygame.Rect(300, 250, 30, 30),
+            'start': pygame.Rect(Config.LARGEUR // 2 - 100, Config.HAUTEUR - 100, 200, 40),
+            'players_minus': pygame.Rect(350, 115, 35, 35),
+            'players_plus': pygame.Rect(400, 115, 35, 35),
+            'time_minus': pygame.Rect(350, 165, 35, 35),
+            'time_plus': pygame.Rect(400, 165, 35, 35),
         }
         
-        # Boutons pour les noms de joueurs
+        # Boutons pour les noms de joueurs (positions ajustées)
         for i in range(5):
-            self.buttons[f'name_{i}'] = pygame.Rect(50, 350 + i * 60, 200, 40)
-            self.buttons[f'color_{i}'] = pygame.Rect(260, 350 + i * 60, 40, 40)
+            self.buttons[f'name_{i}'] = pygame.Rect(100, 280 + i * 50, 200, 30)
+            self.buttons[f'color_{i}'] = pygame.Rect(320, 280 + i * 50, 30, 30)
     
     def handle_events(self):
         """Gère les événements de l'interface."""
@@ -583,8 +583,22 @@ class ConfigScreen:
                     elif event.key == pygame.K_BACKSPACE:
                         self.input_text = self.input_text[:-1]
                     else:
+                        # Gestion des caractères tapés
                         if len(self.input_text) < 20:  # Limite de caractères
-                            self.input_text += event.unicode
+                            # Utiliser event.unicode si disponible, sinon convertir depuis event.key
+                            if hasattr(event, 'unicode') and event.unicode and event.unicode.isprintable():
+                                self.input_text += event.unicode
+                            elif event.key >= 32 and event.key <= 126:  # Caractères ASCII imprimables
+                                # Conversion basique pour les lettres et chiffres
+                                if event.key >= pygame.K_a and event.key <= pygame.K_z:
+                                    char = chr(event.key)
+                                    if pygame.key.get_pressed()[pygame.K_LSHIFT] or pygame.key.get_pressed()[pygame.K_RSHIFT]:
+                                        char = char.upper()
+                                    self.input_text += char
+                                elif event.key >= pygame.K_0 and event.key <= pygame.K_9:
+                                    self.input_text += chr(event.key)
+                                elif event.key == pygame.K_SPACE:
+                                    self.input_text += " "
             
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Clic gauche
@@ -629,76 +643,124 @@ class ConfigScreen:
     
     def draw(self):
         """Dessine l'interface de configuration."""
-        # Fond
-        self.screen.fill((25, 25, 45))
+        # Fond simple et uniforme
+        self.screen.fill((25, 30, 45))
         
-        # Titre
+        # Titre simple
         title = self.font_large.render("Configuration", True, (255, 255, 255))
-        title_rect = title.get_rect(center=(Config.LARGEUR // 2, 80))
+        title_rect = title.get_rect(center=(Config.LARGEUR // 2, 60))
         self.screen.blit(title, title_rect)
         
         # Nombre de joueurs
         players_label = self.font_medium.render("Nombre de joueurs:", True, (255, 255, 255))
-        self.screen.blit(players_label, (50, 200))
+        self.screen.blit(players_label, (50, 120))
         
         # Boutons +/-
-        pygame.draw.rect(self.screen, (100, 100, 100), self.buttons['players_minus'])
-        pygame.draw.rect(self.screen, (100, 100, 100), self.buttons['players_plus'])
-        minus_text = self.font_medium.render("-", True, (255, 255, 255))
-        plus_text = self.font_medium.render("+", True, (255, 255, 255))
-        self.screen.blit(minus_text, (210, 205))
-        self.screen.blit(plus_text, (310, 205))
+        minus_btn = self.buttons['players_minus']
+        plus_btn = self.buttons['players_plus']
         
-        # Affichage du nombre
+        pygame.draw.rect(self.screen, (70, 70, 90), minus_btn)
+        pygame.draw.rect(self.screen, (120, 120, 140), minus_btn, 2)
+        minus_text = self.font_medium.render("-", True, (255, 255, 255))
+        minus_rect = minus_text.get_rect(center=minus_btn.center)
+        self.screen.blit(minus_text, minus_rect)
+        
+        pygame.draw.rect(self.screen, (70, 70, 90), plus_btn)
+        pygame.draw.rect(self.screen, (120, 120, 140), plus_btn, 2)
+        plus_text = self.font_medium.render("+", True, (255, 255, 255))
+        plus_rect = plus_text.get_rect(center=plus_btn.center)
+        self.screen.blit(plus_text, plus_rect)
+        
+        # Affichage du nombre séparé des boutons
         num_text = self.font_medium.render(str(self.num_players), True, (255, 255, 255))
-        self.screen.blit(num_text, (255, 205))
+        self.screen.blit(num_text, (310, 125))
         
         # Durée de partie
         time_label = self.font_medium.render("Durée (secondes):", True, (255, 255, 255))
-        self.screen.blit(time_label, (50, 250))
+        self.screen.blit(time_label, (50, 170))
         
-        pygame.draw.rect(self.screen, (100, 100, 100), self.buttons['time_minus'])
-        pygame.draw.rect(self.screen, (100, 100, 100), self.buttons['time_plus'])
-        self.screen.blit(minus_text, (210, 255))
-        self.screen.blit(plus_text, (310, 255))
+        # Boutons +/- pour le temps
+        time_minus_btn = self.buttons['time_minus']
+        time_plus_btn = self.buttons['time_plus']
         
-        time_text = self.font_medium.render(str(self.game_duration), True, (255, 255, 255))
-        self.screen.blit(time_text, (255, 255))
+        pygame.draw.rect(self.screen, (70, 70, 90), time_minus_btn)
+        pygame.draw.rect(self.screen, (120, 120, 140), time_minus_btn, 2)
+        minus_text = self.font_medium.render("-", True, (255, 255, 255))
+        minus_rect = minus_text.get_rect(center=time_minus_btn.center)
+        self.screen.blit(minus_text, minus_rect)
+        
+        pygame.draw.rect(self.screen, (70, 70, 90), time_plus_btn)
+        pygame.draw.rect(self.screen, (120, 120, 140), time_plus_btn, 2)
+        plus_text = self.font_medium.render("+", True, (255, 255, 255))
+        plus_rect = plus_text.get_rect(center=time_plus_btn.center)
+        self.screen.blit(plus_text, plus_rect)
+        
+        # Affichage du temps séparé des boutons
+        time_text = self.font_medium.render(f"{self.game_duration}s", True, (255, 255, 255))
+        self.screen.blit(time_text, (310, 175))
         
         # Configuration des joueurs
         players_title = self.font_medium.render("Configuration des joueurs:", True, (255, 255, 255))
-        self.screen.blit(players_title, (50, 320))
+        self.screen.blit(players_title, (50, 240))
         
         for i in range(self.num_players):
-            y_pos = 350 + i * 60
+            y_pos = 280 + i * 50
+            
+            # Cercle de couleur simple
+            pygame.draw.circle(self.screen, self.player_colors[i], (70, y_pos + 15), 12)
+            pygame.draw.circle(self.screen, (255, 255, 255), (70, y_pos + 15), 12, 2)
+            
+            # Numéro du joueur
+            num_text = self.font_small.render(str(i + 1), True, (255, 255, 255))
+            num_rect = num_text.get_rect(center=(70, y_pos + 15))
+            self.screen.blit(num_text, num_rect)
             
             # Nom du joueur
-            name_color = (200, 200, 255) if self.input_active == f'name_{i}' else (255, 255, 255)
-            name_rect = self.buttons[f'name_{i}']
-            pygame.draw.rect(self.screen, (50, 50, 70), name_rect)
+            is_active = self.input_active == f'name_{i}'
+            name_color = (255, 255, 100) if is_active else (255, 255, 255)
+            bg_color = (60, 65, 80) if is_active else (50, 55, 70)
+            
+            name_rect = pygame.Rect(100, y_pos, 200, 30)
+            pygame.draw.rect(self.screen, bg_color, name_rect)
             pygame.draw.rect(self.screen, name_color, name_rect, 2)
             
-            display_name = self.input_text if self.input_active == f'name_{i}' else self.player_names[i]
-            name_surface = self.font_small.render(display_name, True, name_color)
-            self.screen.blit(name_surface, (name_rect.x + 5, name_rect.y + 10))
+            # Afficher le texte
+            display_name = self.input_text if is_active else self.player_names[i]
+            if is_active and (pygame.time.get_ticks() // 500) % 2 == 0:
+                display_name += "|"
             
-            # Couleur du joueur
-            color_rect = self.buttons[f'color_{i}']
+            name_surface = self.font_small.render(display_name[:25], True, name_color)
+            self.screen.blit(name_surface, (name_rect.x + 5, name_rect.y + 6))
+            
+            # Bouton couleur simple
+            color_rect = pygame.Rect(320, y_pos, 30, 30)
             pygame.draw.rect(self.screen, self.player_colors[i], color_rect)
             pygame.draw.rect(self.screen, (255, 255, 255), color_rect, 2)
+            
+            # Mise à jour des boutons
+            self.buttons[f'name_{i}'] = name_rect
+            self.buttons[f'color_{i}'] = color_rect
         
-        # Bouton Start
-        start_color = (100, 200, 100)
-        pygame.draw.rect(self.screen, start_color, self.buttons['start'])
-        pygame.draw.rect(self.screen, (255, 255, 255), self.buttons['start'], 2)
+        # Bouton Start simple
+        start_btn = self.buttons['start']
+        pygame.draw.rect(self.screen, (60, 150, 60), start_btn)
+        pygame.draw.rect(self.screen, (255, 255, 255), start_btn, 2)
+        
         start_text = self.font_medium.render("COMMENCER", True, (255, 255, 255))
-        start_rect = start_text.get_rect(center=self.buttons['start'].center)
+        start_rect = start_text.get_rect(center=start_btn.center)
         self.screen.blit(start_text, start_rect)
         
-        # Instructions
-        instruction_text = self.font_small.render("Configurez les paramètres puis cliquez sur COMMENCER", True, (200, 200, 200))
-        instruction_rect = instruction_text.get_rect(center=(Config.LARGEUR // 2, Config.HAUTEUR - 140))
-        self.screen.blit(instruction_text, instruction_rect)
+        # Instructions simples
+        instructions = [
+            "Cliquez sur un nom pour le modifier",
+            "Cliquez sur le carré de couleur pour la changer"
+        ]
+        
+        y = Config.HAUTEUR - 160
+        for instruction in instructions:
+            text = self.font_small.render(instruction, True, (200, 200, 200))
+            self.screen.blit(text, (50, y))
+            y += 25
         
         pygame.display.flip()
     
@@ -1250,61 +1312,62 @@ class BattleGame:
             2
         )
         
-        # Titre plus compact
-        title_text = self.font_medium.render("Bataille de Lignes", True, Config.COULEUR_TEXTE)
-        title_rect = title_text.get_rect(center=(Config.LARGEUR // 2, 20))
+        # Titre simple
+        title_text = self.font_medium.render("BATAILLE", True, (255, 255, 255))
+        title_rect = title_text.get_rect(center=(Config.LARGEUR // 2, 18))
         self.ui_surface.blit(title_text, title_rect)
         
-        # Affichage du timer
+        # Affichage du timer simple
         if hasattr(self, 'remaining_time'):
             minutes = int(self.remaining_time // 60)
             seconds = int(self.remaining_time % 60)
-            timer_text = f"Temps: {minutes:02d}:{seconds:02d}"
             
-            # Couleur rouge si moins de 30 secondes
-            timer_color = (255, 100, 100) if self.remaining_time < 30 else Config.COULEUR_TEXTE
             if self.game_ended and hasattr(self, 'winner_by_time'):
                 timer_text = "TEMPS ÉCOULÉ"
-                timer_color = (255, 255, 100)  # Jaune pour indiquer la fin
+                timer_color = (255, 100, 100)
+            else:
+                timer_text = f"{minutes:02d}:{seconds:02d}"
+                timer_color = (255, 255, 100) if self.remaining_time < 30 else (200, 200, 200)
             
             timer_surface = self.font_small.render(timer_text, True, timer_color)
-            timer_rect = timer_surface.get_rect(center=(Config.LARGEUR // 2, 35))
+            timer_rect = timer_surface.get_rect(center=(Config.LARGEUR // 2, 38))
             self.ui_surface.blit(timer_surface, timer_rect)
         
-        # Scores des joueurs plus compacts
+        # Scores des joueurs - affichage simplifié
         score_y = 55
-        for i, (player_id, player) in enumerate(self.players.items()):
-            # Couleur du joueur (plus petite)
-            color_rect = pygame.Rect(15, score_y + i * 28, 15, 15)
-            pygame.draw.rect(self.ui_surface, player.color, color_rect)
-            pygame.draw.rect(self.ui_surface, Config.COULEUR_TEXTE, color_rect, 1)
+        
+        # Trier les joueurs par score
+        sorted_players = sorted(self.players.items(), key=lambda x: x[1].score, reverse=True)
+        
+        for i, (player_id, player) in enumerate(sorted_players):
+            y_pos = score_y + i * 25
             
-            # Score et informations sur une seule ligne
-            score_text = f"{player.name}: {player.score}"
+            # Cercle de couleur simple
+            circle_x = 20
             if player.is_eliminated:
-                score_text += " [ÉLIMINÉ]"
-                # Griser la couleur du joueur éliminé
-                gray_color = (100, 100, 100)
-                pygame.draw.rect(self.ui_surface, gray_color, color_rect)
-                pygame.draw.rect(self.ui_surface, Config.COULEUR_TEXTE, color_rect, 1)
-            elif player.was_power_reduced:
-                score_text += " [AFFAIBLI]"
+                pygame.draw.circle(self.ui_surface, (80, 80, 80), (circle_x, y_pos + 10), 8)
+                pygame.draw.line(self.ui_surface, (255, 100, 100), 
+                               (circle_x - 5, y_pos + 5), 
+                               (circle_x + 5, y_pos + 15), 2)
+                pygame.draw.line(self.ui_surface, (255, 100, 100), 
+                               (circle_x + 5, y_pos + 5), 
+                               (circle_x - 5, y_pos + 15), 2)
+            else:
+                pygame.draw.circle(self.ui_surface, player.color, (circle_x, y_pos + 10), 8)
             
-            # Couleur du texte grisée pour les joueurs éliminés
-            text_color = (150, 150, 150) if player.is_eliminated else Config.COULEUR_TEXTE
-            score_surface = self.font_small.render(score_text, True, text_color)
-            self.ui_surface.blit(score_surface, (35, score_y + i * 28 + 2))
+            # Nom du joueur
+            name_color = (120, 120, 120) if player.is_eliminated else (255, 255, 255)
+            name_surface = self.font_small.render(player.name, True, name_color)
+            self.ui_surface.blit(name_surface, (40, y_pos + 5))
+            
+            # Score simple
+            score_text = str(player.score)
+            score_color = (120, 120, 120) if player.is_eliminated else (255, 255, 100)
+            score_surface = self.font_small.render(score_text, True, score_color)
+            score_rect = score_surface.get_rect()
+            self.ui_surface.blit(score_surface, (Config.LARGEUR - score_rect.width - 20, y_pos + 5))
         
-        # Informations de configuration plus compactes
-        config_y = ui_height - 50
-        config_texts = [
-            f"Objectif: {Config.CONDITION_VICTOIRE} | Mode: {Config.MODE_BATAILLE}",
-            f"FPS: {self.current_fps} | Cibles: {len(self.targets)}"
-        ]
-        
-        for i, text in enumerate(config_texts):
-            rendered_text = self.font_small.render(text, True, Config.COULEUR_TEXTE)
-            self.ui_surface.blit(rendered_text, (20, config_y + i * 20))
+        # Zone libre pour les scores (suppression des informations techniques)
     
     def draw_ui(self):
         """Dessine l'interface utilisateur optimisée."""
