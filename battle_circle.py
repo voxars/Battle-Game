@@ -316,21 +316,29 @@ class Player:
         # Réduire la marge pour des rebonds plus fréquents
         max_distance = self.circle_radius - self.radius * 0.5  # Rebond plus tôt
         if distance_from_center > max_distance:
-            # Rebond sur la paroi avec variabilité réaliste
-            # Normaliser le vecteur de position
-            nx = dx / distance_from_center
-            ny = dy / distance_from_center
+            # Rebond vers le centre avec variation d'angle
+            # Calculer la direction vers le centre du cercle
+            center_direction_x = self.center_x - new_x
+            center_direction_y = self.center_y - new_y
+            center_distance = math.sqrt(center_direction_x * center_direction_x + center_direction_y * center_direction_y)
             
-            # Calculer l'angle actuel de la vitesse
-            current_angle = math.atan2(self.vy, self.vx)
+            # Normaliser la direction vers le centre
+            if center_distance > 0:
+                center_direction_x /= center_distance
+                center_direction_y /= center_distance
+            
+            # Calculer l'angle vers le centre
+            center_angle = math.atan2(center_direction_y, center_direction_x)
+            
+            # Ajouter une variation de ±20° autour de la direction vers le centre
+            angle_variation = random.uniform(-20, 20)  # ±20° de variation
+            target_angle = center_angle + math.radians(angle_variation)
+
+            # Calculer la vitesse actuelle pour maintenir l'énergie
             current_speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
             
-            # Ajouter de la variabilité à l'angle de rebond (entre 160° et 200° au lieu de 180°)
-            angle_variation = random.uniform(-20, 20)  # ±20° de variation
-            target_angle = current_angle + math.pi + math.radians(angle_variation)  # ~180° ± 20°
-
-            # Appliquer le nouveau vecteur de vitesse avec rebond très variable
-            bounce_coefficient = Config.COEFFICIENT_REBOND * random.uniform(0.7, 1.3)  # Beaucoup plus de variabilité
+            # Appliquer le nouveau vecteur de vitesse vers le centre avec variation
+            bounce_coefficient = Config.COEFFICIENT_REBOND * random.uniform(0.8, 1.2)  # Coefficient de rebond plus stable
             self.vx = math.cos(target_angle) * current_speed * bounce_coefficient
             self.vy = math.sin(target_angle) * current_speed * bounce_coefficient
             
