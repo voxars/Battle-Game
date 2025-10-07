@@ -15,6 +15,248 @@ from typing import List, Tuple, Dict, Optional
 import time
 
 
+class SoundManager:
+    """Gestionnaire de sons synthétiques pour le jeu."""
+    
+    def __init__(self, sample_rate: int = 22050):
+        """Initialise le gestionnaire de sons."""
+        pygame.mixer.pre_init(frequency=sample_rate, size=-16, channels=2, buffer=512)
+        self.sample_rate = sample_rate
+        self.sounds = {}
+        self._generate_sounds()
+    
+    def _generate_sounds(self):
+        """Génère tous les sons synthétiques du jeu."""
+        # Son de collision avec les bords (grave/métallique)
+        self.sounds['border_collision'] = self._create_border_collision_sound()
+        
+        # Son de collision entre joueurs (plus aigu)
+        self.sounds['player_collision'] = self._create_player_collision_sound()
+        
+        # Son d'élimination (dramatique)
+        self.sounds['elimination'] = self._create_elimination_sound()
+        
+        # Son de vol de ligne (cristallin)
+        self.sounds['line_steal'] = self._create_line_steal_sound()
+        
+        # Son d'alerte fin de jeu (prioritaire)
+        self.sounds['end_game_alert'] = self._create_end_game_alert_sound()
+    
+    def _create_border_collision_sound(self) -> pygame.mixer.Sound:
+        """Crée un son de collision avec les bords (métallique)."""
+        duration = 0.3  # 300ms
+        frames = int(duration * self.sample_rate)
+        
+        # Génération d'un son métallique avec harmoniques
+        t = np.linspace(0, duration, frames, False)
+        
+        # Fréquence de base grave
+        freq = 150
+        wave = np.sin(2 * np.pi * freq * t)
+        
+        # Ajout d'harmoniques pour effet métallique
+        wave += 0.3 * np.sin(2 * np.pi * freq * 2 * t)
+        wave += 0.2 * np.sin(2 * np.pi * freq * 3 * t)
+        
+        # Enveloppe d'attaque rapide et décroissance
+        envelope = np.exp(-5 * t)
+        wave = wave * envelope
+        
+        # Normalisation et conversion stéréo
+        wave = np.clip(wave * 0.3, -1, 1)
+        stereo_wave = np.column_stack([wave, wave])
+        
+        # Conversion en format pygame
+        wave_array = (stereo_wave * 32767).astype(np.int16)
+        return pygame.sndarray.make_sound(wave_array)
+    
+    def _create_player_collision_sound(self) -> pygame.mixer.Sound:
+        """Crée un son de collision entre joueurs (plus aigu)."""
+        duration = 0.2  # 200ms
+        frames = int(duration * self.sample_rate)
+        
+        # Son plus aigu et brillant
+        t = np.linspace(0, duration, frames, False)
+        
+        # Fréquence plus haute
+        freq = 400
+        wave = np.sin(2 * np.pi * freq * t)
+        
+        # Modulation de fréquence pour effet "choc"
+        modulation = 1 + 0.5 * np.sin(2 * np.pi * 20 * t)
+        wave = wave * modulation
+        
+        # Enveloppe rapide
+        envelope = np.exp(-10 * t)
+        wave = wave * envelope
+        
+        # Normalisation et conversion stéréo
+        wave = np.clip(wave * 0.25, -1, 1)
+        stereo_wave = np.column_stack([wave, wave])
+        
+        # Conversion en format pygame
+        wave_array = (stereo_wave * 32767).astype(np.int16)
+        return pygame.sndarray.make_sound(wave_array)
+    
+    def _create_elimination_sound(self) -> pygame.mixer.Sound:
+        """Crée un son d'élimination dramatique (1.5 sec)."""
+        duration = 1.5  # 1.5 secondes
+        frames = int(duration * self.sample_rate)
+        
+        t = np.linspace(0, duration, frames, False)
+        
+        # Descente de fréquence dramatique
+        start_freq = 800
+        end_freq = 60
+        freq = start_freq * np.exp(-2 * t)  # Descente exponentielle
+        
+        # Génération de l'onde avec fréquence variable
+        phase = 2 * np.pi * np.cumsum(freq) / self.sample_rate
+        wave = np.sin(phase)
+        
+        # Ajout d'harmoniques pour richesse
+        wave += 0.3 * np.sin(2 * phase)
+        wave += 0.1 * np.sin(3 * phase)
+        
+        # Enveloppe avec sustain puis fade out
+        envelope = np.ones_like(t)
+        fade_start = int(0.8 * frames)
+        envelope[fade_start:] = np.linspace(1, 0, frames - fade_start)
+        wave = wave * envelope
+        
+        # Ajout d'un effet de réverbération simple
+        reverb_delay = int(0.05 * self.sample_rate)  # 50ms
+        reverb_wave = np.zeros_like(wave)
+        reverb_wave[reverb_delay:] = wave[:-reverb_delay] * 0.3
+        wave = wave + reverb_wave
+        
+        # Normalisation et conversion stéréo
+        wave = np.clip(wave * 0.4, -1, 1)
+        stereo_wave = np.column_stack([wave, wave])
+        
+        # Conversion en format pygame
+        wave_array = (stereo_wave * 32767).astype(np.int16)
+        return pygame.sndarray.make_sound(wave_array)
+    
+    def _create_line_steal_sound(self) -> pygame.mixer.Sound:
+        """Crée un son doux et mélodieux pour le vol de ligne."""
+        duration = 0.3  # 300ms (plus court)
+        frames = int(duration * self.sample_rate)
+        
+        t = np.linspace(0, duration, frames, False)
+        
+        # Son plus doux avec fréquences moins aiguës
+        start_freq = 400  # Plus grave
+        end_freq = 800   # Moins aigu
+        # Montée progressive plus douce
+        freq = start_freq + (end_freq - start_freq) * np.sqrt(t / duration)  # Courbe adoucie
+        
+        # Génération de l'onde avec fréquence variable
+        phase = 2 * np.pi * np.cumsum(freq) / self.sample_rate
+        wave = np.sin(phase)
+        
+        # Harmoniques plus douces et moins nombreuses
+        wave += 0.2 * np.sin(2 * phase)  # Octave réduite
+        wave += 0.1 * np.sin(3 * phase)  # Quinte très réduite
+        
+        # Pas de trémolo pour un son plus lisse
+        
+        # Enveloppe plus douce avec attaque et decay plus longs
+        attack_time = 0.08  # 80ms d'attaque plus douce
+        decay_start = int(0.4 * frames)  # Decay plus tardif
+        
+        envelope = np.ones_like(t)
+        # Attaque douce
+        attack_frames = int(attack_time * self.sample_rate)
+        envelope[:attack_frames] = np.sin(np.pi * 0.5 * np.linspace(0, 1, attack_frames))  # Courbe sinusoïdale
+        # Decay progressif et doux
+        envelope[decay_start:] = np.cos(np.pi * 0.5 * np.linspace(0, 1, frames - decay_start))
+        
+        wave = wave * envelope
+        
+        # Normalisation avec volume encore plus réduit
+        wave = np.clip(wave * 0.15, -1, 1)  # Volume réduit de moitié
+        stereo_wave = np.column_stack([wave, wave])
+        
+        # Conversion en format pygame
+        wave_array = (stereo_wave * 32767).astype(np.int16)
+        return pygame.sndarray.make_sound(wave_array)
+    
+    def _create_end_game_alert_sound(self) -> pygame.mixer.Sound:
+        """Crée un son d'alerte dramatique pour la fin de jeu."""
+        duration = 1.0  # 1 seconde
+        frames = int(duration * self.sample_rate)
+        
+        t = np.linspace(0, duration, frames, False)
+        
+        # Son d'alerte avec pulsations rythmées
+        base_freq = 800  # Fréquence de base
+        
+        # Pulsations à 3 Hz (3 battements par seconde)
+        pulsation = 0.5 + 0.5 * np.sin(2 * np.pi * 3 * t)
+        
+        # Onde principale
+        wave = np.sin(2 * np.pi * base_freq * t)
+        
+        # Ajout d'harmoniques pour urgence
+        wave += 0.6 * np.sin(2 * np.pi * base_freq * 2 * t)  # Octave
+        wave += 0.3 * np.sin(2 * np.pi * base_freq * 3 * t)  # Quinte
+        
+        # Application des pulsations
+        wave = wave * pulsation
+        
+        # Modulation de fréquence pour effet d'urgence
+        freq_mod = 1 + 0.1 * np.sin(2 * np.pi * 7 * t)  # Vibrato d'urgence
+        phase_mod = 2 * np.pi * base_freq * np.cumsum(freq_mod) / self.sample_rate
+        wave_mod = np.sin(phase_mod) * pulsation
+        
+        # Mélange des deux effets
+        wave = 0.7 * wave + 0.3 * wave_mod
+        
+        # Enveloppe avec montée progressive
+        envelope = np.minimum(1.0, t * 4)  # Montée sur 0.25 secondes
+        envelope = np.minimum(envelope, np.linspace(1, 0.8, frames))  # Légère diminution
+        
+        wave = wave * envelope
+        
+        # Volume élevé pour priorité
+        wave = np.clip(wave * 0.8, -1, 1)
+        stereo_wave = np.column_stack([wave, wave])
+        
+        # Conversion en format pygame
+        wave_array = (stereo_wave * 32767).astype(np.int16)
+        return pygame.sndarray.make_sound(wave_array)
+    
+    def play_sound(self, sound_name: str, volume: float = 1.0):
+        """Joue un son avec le volume spécifié."""
+        if sound_name in self.sounds:
+            sound = self.sounds[sound_name]
+            sound.set_volume(volume)
+            sound.play()
+    
+    def play_border_collision(self, volume: float = 0.4):
+        """Joue le son de collision avec les bords."""
+        self.play_sound('border_collision', volume)
+    
+    def play_player_collision(self, volume: float = 0.5):
+        """Joue le son de collision entre joueurs."""
+        self.play_sound('player_collision', volume)
+    
+    def play_elimination(self, volume: float = 0.6):
+        """Joue le son d'élimination."""
+        self.play_sound('elimination', volume)
+    
+    def play_line_steal(self, volume: float = 0.4):
+        """Joue le son de vol de ligne."""
+        self.play_sound('line_steal', volume)
+    
+    def play_end_game_alert(self, volume: float = 1.0):
+        """Joue le son d'alerte de fin de jeu (prioritaire)."""
+        # Arrêter tous les autres sons avant de jouer l'alerte
+        pygame.mixer.stop()
+        self.play_sound('end_game_alert', volume)
+
+
 class Confetti:
     """Classe pour un confetti individuel."""
     
@@ -224,7 +466,7 @@ class Config:
     @classmethod
     def get_ui_area_height(cls) -> float:
         """Retourne la hauteur réduite de la zone d'interface utilisateur."""
-        return 200  # Zone UI plus compacte au lieu de HAUTEUR // 3 (427px)
+        return 80  # Zone UI très compacte - juste titre et timer
 
 
 class SimplexNoise:
@@ -293,7 +535,7 @@ noise_generator = SimplexNoise()
 class Player:
     """Classe représentant un joueur dans la bataille de lignes."""
     
-    def __init__(self, player_id: int, color: Tuple[int, int, int], center_x: float, center_y: float, circle_radius: float, total_players: int = Config.NOMBRE_PARTICIPANTS):
+    def __init__(self, player_id: int, color: Tuple[int, int, int], center_x: float, center_y: float, circle_radius: float, total_players: int = Config.NOMBRE_PARTICIPANTS, sound_manager=None):
         """
         Initialise un joueur.
         
@@ -303,6 +545,7 @@ class Player:
             center_x, center_y: Centre du cercle de jeu
             circle_radius: Rayon du cercle de jeu
             total_players: Nombre total de joueurs (pour le calcul d'angle)
+            sound_manager: Gestionnaire de sons pour les effets audio
         """
         self.id = player_id
         self.color = color
@@ -310,6 +553,7 @@ class Player:
         self.score = 0
         self.power_factor = 1.0  # Facteur de puissance normal
         self.is_eliminated = False  # État d'élimination
+        self.sound_manager = sound_manager  # Gestionnaire de sons
         
         # Positions et mouvement
         self.center_x = center_x
@@ -333,15 +577,16 @@ class Player:
         distance_to_center = math.sqrt(dx_to_center * dx_to_center + dy_to_center * dy_to_center)
         
         # Normaliser le vecteur et appliquer la vitesse initiale vers le centre exact
-        initial_speed = 100.0  # Vitesse initiale identique pour tous
+        initial_speed = 150.0  # Vitesse initiale augmentée pour éviter l'élimination précoce
         if distance_to_center > 0:
             # Direction normalisée vers le centre exact du cercle
             self.vx = (dx_to_center / distance_to_center) * initial_speed
             self.vy = (dy_to_center / distance_to_center) * initial_speed
         else:
-            # Cas improbable où le joueur serait déjà au centre
-            self.vx = 0
-            self.vy = 0
+            # Cas improbable où le joueur serait déjà au centre - vitesse aléatoire élevée
+            angle = random.uniform(0, 2 * math.pi)
+            self.vx = math.cos(angle) * initial_speed
+            self.vy = math.sin(angle) * initial_speed
         
         # Base pour le bruit de Perlin (force d'attraction/répulsion)
         # Créer un générateur de bruit unique pour chaque joueur avec seed très variable
@@ -384,20 +629,26 @@ class Player:
             self.noise_offset_y + self.noise_time
         )
         
-        # Appliquer les forces de bruit à la vélocité (plus subtiles pour maintenir la direction)
+        # Appliquer les forces de bruit à la vélocité (encore plus subtiles au début)
         force_x = noise_x * Config.AMPLITUDE_BRUIT_POSITION
         force_y = noise_y * Config.AMPLITUDE_BRUIT_POSITION
         
-        self.vx += force_x * time_factor * 0.2  # Influence très réduite du bruit
-        self.vy += force_y * time_factor * 0.2
+        # Réduire l'influence du bruit au début du jeu pour éviter les ralentissements
+        noise_influence = 0.05 if self.noise_time < 20 else 0.15  # Très faible au début
+        self.vx += force_x * time_factor * noise_influence
+        self.vy += force_y * time_factor * noise_influence
         
-        # Maintenir une vitesse minimale pour éviter l'arrêt complet
+        # Empêcher le ralentissement - les joueurs accélèrent constamment
         current_speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
-        min_speed = 40.0  # Vitesse minimale légèrement augmentée
+        
+        # Vitesse minimale qui augmente avec le temps pour éviter tout ralentissement
+        base_min_speed = 120.0  # Vitesse de base cohérente avec la vitesse initiale
+        acceleration_bonus = self.noise_time * 3.0  # Accélération progressive plus rapide
+        min_speed = base_min_speed + acceleration_bonus
         
         if current_speed < min_speed:
             if current_speed > 0:
-                # Normaliser et appliquer la vitesse minimale
+                # Normaliser et appliquer la vitesse minimale croissante
                 self.vx = (self.vx / current_speed) * min_speed
                 self.vy = (self.vy / current_speed) * min_speed
             else:
@@ -414,6 +665,11 @@ class Player:
                     angle = random.uniform(0, 2 * math.pi)
                     self.vx = math.cos(angle) * min_speed
                     self.vy = math.sin(angle) * min_speed
+        else:
+            # Même si la vitesse est suffisante, ajouter une micro-accélération constante
+            speed_boost = 1.001  # Augmentation de 0.1% à chaque frame
+            self.vx *= speed_boost
+            self.vy *= speed_boost
         
         # Répulsion entre joueurs avec accélération plus forte
         for other in other_players:
@@ -456,6 +712,10 @@ class Player:
         max_distance = self.circle_radius - self.radius * 0.5  # Rebond plus tôt
         if distance_from_center > max_distance:
             # Rebond vers le centre avec variation d'angle
+            
+            # Jouer le son de collision avec les bords
+            if self.sound_manager:
+                self.sound_manager.play_border_collision()
             # Calculer la direction vers le centre du cercle
             center_direction_x = self.center_x - new_x
             center_direction_y = self.center_y - new_y
@@ -476,10 +736,12 @@ class Player:
             # Calculer la vitesse actuelle pour maintenir l'énergie
             current_speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
             
-            # Appliquer le nouveau vecteur de vitesse vers le centre avec variation
-            bounce_coefficient = Config.COEFFICIENT_REBOND * random.uniform(0.8, 1.2)  # Coefficient de rebond plus stable
-            self.vx = math.cos(target_angle) * current_speed * bounce_coefficient
-            self.vy = math.sin(target_angle) * current_speed * bounce_coefficient
+            # Appliquer le nouveau vecteur de vitesse vers le centre avec variation ET accélération
+            bounce_coefficient = Config.COEFFICIENT_REBOND * random.uniform(1.0, 1.4)  # Jamais de ralentissement
+            speed_boost = 1.3  # Accélération de 30% lors du rebond sur les bords
+            boosted_speed = current_speed * bounce_coefficient * speed_boost
+            self.vx = math.cos(target_angle) * boosted_speed
+            self.vy = math.sin(target_angle) * boosted_speed
             
             # Repositionner le joueur à la limite
             factor = max_distance / distance_from_center
@@ -521,6 +783,10 @@ class Player:
         if owned_count == 0 and not self.is_eliminated:
             self.is_eliminated = True
             print(f"Joueur {self.id + 1} éliminé - plus de lignes !")
+            
+            # Jouer le son d'élimination
+            if self.sound_manager:
+                self.sound_manager.play_elimination()
         return self.is_eliminated
     
     def draw(self, screen: pygame.Surface, font: pygame.font.Font):
@@ -1006,6 +1272,9 @@ class BattleGame:
         self.font_medium = pygame.font.Font(None, 24)
         self.font_small = pygame.font.Font(None, 18)
         
+        # Système audio
+        self.sound_manager = SoundManager()
+        
         # Variables de jeu
         self.running = True
         self.frame_count = 0
@@ -1017,6 +1286,12 @@ class BattleGame:
         self.remaining_time = self.game_duration
         self.game_ended = False
         self.winner_by_time = None
+        self.end_game_alert_played = False  # Pour éviter de jouer l'alerte plusieurs fois
+        
+        # Système d'accélération progressive
+        self.last_acceleration_time = 0
+        self.acceleration_interval = 5  # 5 secondes
+        self.speed_boost_factor = 1.2  # Facteur d'accélération initial
         
         # Centre du cercle
         self.center_x = Config.get_center_x()
@@ -1064,7 +1339,7 @@ class BattleGame:
         """Initialise les joueurs."""
         for i in range(self.num_players):
             color = self.player_colors[i] if i < len(self.player_colors) else Config.COULEURS_JOUEURS[i % len(Config.COULEURS_JOUEURS)]
-            player = Player(i, color, self.center_x, self.center_y, Config.TAILLE_CERCLE, self.num_players)
+            player = Player(i, color, self.center_x, self.center_y, Config.TAILLE_CERCLE, self.num_players, self.sound_manager)
             if i < len(self.player_names):
                 player.name = self.player_names[i]
             else:
@@ -1152,52 +1427,48 @@ class BattleGame:
                 min_distance = player1.radius + player2.radius
                 
                 if distance < min_distance and distance > 0:
-                    # Collision détectée - rebond élastique
+                    # Collision détectée - rebond avec directions divergentes
                     
+                    # Jouer le son de collision entre joueurs
+                    self.sound_manager.play_player_collision()
+                    
+                    # Calculer l'angle de collision
+                    collision_angle = math.atan2(dy, dx)
+                    
+                    # Vitesses actuelles des joueurs
+                    speed1 = math.sqrt(player1.vx * player1.vx + player1.vy * player1.vy)
+                    speed2 = math.sqrt(player2.vx * player2.vx + player2.vy * player2.vy)
+                    
+                    # Vitesse moyenne pour maintenir l'énergie
+                    avg_speed = (speed1 + speed2) / 2
+                    
+                    # Force de rebond énergique
+                    bounce_speed = avg_speed * 1.4  # 40% d'augmentation
+                    
+                    # Calculer les angles de rebond avec divergence minimale de 90°
+                    # Player1 rebondit à ~135° de l'angle de collision
+                    # Player2 rebondit à ~45° de l'angle de collision
+                    # Cela garantit 90° minimum entre leurs trajectoires
+                    
+                    # Ajouter de la variabilité tout en maintenant la divergence
+                    angle_variation1 = random.uniform(-25, 25)  # ±25° de variation
+                    angle_variation2 = random.uniform(-25, 25)  # ±25° de variation
+                    
+                    # Angles de rebond divergents
+                    rebound_angle1 = collision_angle + math.pi * 0.75 + math.radians(angle_variation1)  # ~135° + variation
+                    rebound_angle2 = collision_angle + math.pi * 0.25 + math.radians(angle_variation2)  # ~45° + variation
+                    
+                    # Appliquer les nouvelles vitesses avec directions divergentes
+                    player1.vx = math.cos(rebound_angle1) * bounce_speed
+                    player1.vy = math.sin(rebound_angle1) * bounce_speed
+                    player2.vx = math.cos(rebound_angle2) * bounce_speed
+                    player2.vy = math.sin(rebound_angle2) * bounce_speed
+                    
+                    # Séparer les joueurs pour éviter l'interpénétration
                     # Vecteur de collision normalisé
                     nx = dx / distance
                     ny = dy / distance
                     
-                    # Vitesses relatives
-                    dvx = player2.vx - player1.vx
-                    dvy = player2.vy - player1.vy
-                    
-                    # Vitesse relative dans la direction de collision
-                    dvn = dvx * nx + dvy * ny
-                    
-                    # Ne pas résoudre si les objets s'éloignent déjà
-                    if dvn > 0:
-                        continue
-                    
-                    # Collision avec variabilité aléatoire (160° à 200° au lieu de 180°)
-                    
-                    # Calculer les angles actuels des vitesses
-                    angle1 = math.atan2(player1.vy, player1.vx)
-                    angle2 = math.atan2(player2.vy, player2.vx)
-                    speed1 = math.sqrt(player1.vx * player1.vx + player1.vy * player1.vy)
-                    speed2 = math.sqrt(player2.vx * player2.vx + player2.vy * player2.vy)
-
-                    # Ajouter de la variabilité à l'angle de rebond (±20° autour de 180°)
-                    angle_variation1 = random.uniform(-20, 20)  # ±20° de variation
-                    angle_variation2 = random.uniform(-20, 20)  # ±20° de variation
-
-                    # Calculer les nouveaux angles avec variabilité
-                    new_angle1 = angle1 + math.pi + math.radians(angle_variation1)  # ~180° ± 20°
-                    new_angle2 = angle2 + math.pi + math.radians(angle_variation2)  # ~180° ± 20°
-
-                    # Coefficient de rebond avec beaucoup plus de variabilité
-                    bounce_factor1 = Config.COEFFICIENT_REBOND * random.uniform(0.6, 1.4)
-                    bounce_factor2 = Config.COEFFICIENT_REBOND * random.uniform(0.6, 1.4)
-                    
-                    # Appliquer les nouvelles vitesses avec l'accélération variable
-                    acceleration_factor1 = random.uniform(1.5, 3.5)  # Accélération variable pour le joueur 1
-                    acceleration_factor2 = random.uniform(1.5, 3.5)  # Accélération variable pour le joueur 2
-                    player1.vx = math.cos(new_angle1) * speed1 * bounce_factor1 * acceleration_factor1
-                    player1.vy = math.sin(new_angle1) * speed1 * bounce_factor1 * acceleration_factor1
-                    player2.vx = math.cos(new_angle2) * speed2 * bounce_factor2 * acceleration_factor2
-                    player2.vy = math.sin(new_angle2) * speed2 * bounce_factor2 * acceleration_factor2
-                    
-                    # Séparer les joueurs pour éviter l'interpénétration
                     overlap = min_distance - distance
                     separation = overlap / 2
                     
@@ -1227,6 +1498,9 @@ class BattleGame:
                     if target.owner_id != player.id:  # Si ce n'est pas déjà sa cible
                         old_owner = target.owner_id
                         target.set_owner(player.id)
+                        
+                        # Jouer le son de vol de ligne
+                        self.sound_manager.play_line_steal()
                         
                         # Ajouter des points au joueur qui a touché la cible
                         player.add_score(1)
@@ -1260,6 +1534,9 @@ class BattleGame:
                         # Le joueur franchit une ligne ennemie - il gagne la ligne
                         old_owner = target.owner_id
                         target.set_owner(player.id)
+                        
+                        # Jouer le son de vol de ligne
+                        self.sound_manager.play_line_steal()
                         
                         # Ajouter des points au joueur qui a franchi
                         player.add_score(1)
@@ -1375,6 +1652,39 @@ class BattleGame:
         # Mise à jour du timer
         if not self.game_ended:
             self.remaining_time = self.game_duration - (current_time - self.game_start_time)
+            
+            # Système d'accélération progressive toutes les 20 secondes
+            elapsed_time = current_time - self.game_start_time
+            acceleration_intervals_passed = int(elapsed_time // self.acceleration_interval)
+            
+            if acceleration_intervals_passed > self.last_acceleration_time:
+                self.last_acceleration_time = acceleration_intervals_passed
+                # Augmenter la vitesse de 15% à chaque intervalle
+                self.speed_boost_factor += 0.15
+                
+                # Appliquer l'accélération à tous les joueurs actifs
+                active_players = [p for p in self.players.values() if not p.is_eliminated]
+                if active_players:
+                    print(f"🚀 Accélération activée ! (x{self.speed_boost_factor:.1f}) - {len(active_players)} joueurs restants")
+                    
+                    for player in active_players:
+                        # Augmenter la vitesse actuelle du joueur
+                        current_speed = math.sqrt(player.vx * player.vx + player.vy * player.vy)
+                        if current_speed > 0:
+                            # Appliquer le boost de vitesse
+                            boost_factor = 1.15  # 15% d'augmentation
+                            player.vx *= boost_factor
+                            player.vy *= boost_factor
+                
+                # Forcer la mise à jour de l'UI pour montrer l'accélération
+                self.ui_needs_update = True
+            
+            # Alerte sonore pour les 3 dernières secondes
+            if self.remaining_time <= 3.0 and self.remaining_time > 0 and not self.end_game_alert_played:
+                self.sound_manager.play_end_game_alert()
+                self.end_game_alert_played = True
+                print("⚠️ ALERTE : 3 dernières secondes !")
+            
             if self.remaining_time <= 0:
                 self.remaining_time = 0
                 self.game_ended = True
@@ -1489,42 +1799,39 @@ class BattleGame:
             timer_surface = self.font_small.render(timer_text, True, timer_color)
             timer_rect = timer_surface.get_rect(center=(Config.LARGEUR // 2, 38))
             self.ui_surface.blit(timer_surface, timer_rect)
+            
+
         
-        # Scores des joueurs - affichage simplifié
-        score_y = 55
+        # Les scores sont maintenant affichés près du cercle
+    
+    def draw_circle_side_scores(self):
+        """Affiche les scores dans le coin supérieur gauche avec des points colorés."""
+        # Position dans le coin supérieur gauche
+        base_x = 30
+        start_y = 100  # Juste sous la zone UI
+        spacing = 35
         
-        # Trier les joueurs par score
+        # Trier les joueurs par score (ordre décroissant)
         sorted_players = sorted(self.players.items(), key=lambda x: x[1].score, reverse=True)
         
         for i, (player_id, player) in enumerate(sorted_players):
-            y_pos = score_y + i * 25
+            y_pos = start_y + i * spacing
             
-            # Cercle de couleur simple
-            circle_x = 20
-            if player.is_eliminated:
-                pygame.draw.circle(self.ui_surface, (80, 80, 80), (circle_x, y_pos + 10), 8)
-                pygame.draw.line(self.ui_surface, (255, 100, 100), 
-                               (circle_x - 5, y_pos + 5), 
-                               (circle_x + 5, y_pos + 15), 2)
-                pygame.draw.line(self.ui_surface, (255, 100, 100), 
-                               (circle_x + 5, y_pos + 5), 
-                               (circle_x - 5, y_pos + 15), 2)
-            else:
-                pygame.draw.circle(self.ui_surface, player.color, (circle_x, y_pos + 10), 8)
+            # Dessiner un point de couleur du joueur
+            point_radius = 8
+            point_color = player.color if not player.is_eliminated else (100, 100, 100)
+            pygame.draw.circle(self.screen, point_color, (base_x, y_pos), point_radius)
             
-            # Nom du joueur
-            name_color = (120, 120, 120) if player.is_eliminated else (255, 255, 255)
-            name_surface = self.font_small.render(player.name, True, name_color)
-            self.ui_surface.blit(name_surface, (40, y_pos + 5))
+            # Contour blanc pour une meilleure visibilité
+            pygame.draw.circle(self.screen, (255, 255, 255), (base_x, y_pos), point_radius, 1)
             
-            # Score simple
+            # Score avec la même couleur que le point
             score_text = str(player.score)
-            score_color = (120, 120, 120) if player.is_eliminated else (255, 255, 100)
-            score_surface = self.font_small.render(score_text, True, score_color)
-            score_rect = score_surface.get_rect()
-            self.ui_surface.blit(score_surface, (Config.LARGEUR - score_rect.width - 20, y_pos + 5))
-        
-        # Zone libre pour les scores (suppression des informations techniques)
+            text_color = player.color if not player.is_eliminated else (100, 100, 100)
+            
+            # Rendu et affichage du texte à côté du point
+            score_surface = self.font_medium.render(score_text, True, text_color)
+            self.screen.blit(score_surface, (base_x + 20, y_pos - 10))
     
     def draw_ui(self):
         """Dessine l'interface utilisateur optimisée."""
@@ -1536,8 +1843,11 @@ class BattleGame:
             self.ui_needs_update = False
             self.last_ui_update = current_time
         
-        # Dessiner la surface UI mise en cache
+        # Dessiner la surface UI mise en cache (titre et timer seulement)
         self.screen.blit(self.ui_surface, (0, 0))
+        
+        # Dessiner les scores près du cercle
+        self.draw_circle_side_scores()
     
     def draw(self):
         """Dessine tous les éléments du jeu."""
