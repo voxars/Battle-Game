@@ -52,16 +52,20 @@ class Config:
     ZONE_INTERFERENCE_ANGLE: float = 30.0  # degrés
     PROBABILITE_INTERFERENCE: float = 0.25
     DUREE_CLIGNOTEMENT: int = 5  # frames
-    EPAISSEUR_LIGNE_NORMALE: int = 2
-    EPAISSEUR_LIGNE_CONTRE_ATTAQUE: int = 4
+    EPAISSEUR_LIGNE_NORMALE: int = 1  # Lignes plus fines
+    EPAISSEUR_LIGNE_CONTRE_ATTAQUE: int = 2
     
     # Paramètres de mouvement
-    VITESSE_MOUVEMENT_JOUEUR: float = 2.0
-    AMPLITUDE_BRUIT_POSITION: float = 20.0
-    VITESSE_MAX_JOUEUR: float = 150.0  # pixels/seconde
-    RAYON_JOUEUR: float = 8.0
-    COEFFICIENT_REBOND: float = 0.8
+    VITESSE_MOUVEMENT_JOUEUR: float = 4.0  # Vitesse augmentée
+    AMPLITUDE_BRUIT_POSITION: float = 8.0  # Bruit réduit pour maintenir la direction
+    VITESSE_MAX_JOUEUR: float = 200.0  # Vitesse max augmentée
+    RAYON_JOUEUR: float = 20.0  # Taille augmentée pour plus de visibilité
+    COEFFICIENT_REBOND: float = 0.9  # Rebond plus énergique
     FORCE_REPULSION_JOUEURS: float = 500.0
+    
+    # Paramètres visuels
+    DENSITE_CIBLES_PAR_PIXEL: float = 0.06  # Une cible tous les 16-17 pixels (environ 130 cibles)
+    NOMBRE_MIN_CIBLES: int = 40
     
     @classmethod
     def get_center_x(cls) -> float:
@@ -70,13 +74,17 @@ class Config:
     
     @classmethod
     def get_center_y(cls) -> float:
-        """Retourne le centre Y de l'écran (légèrement décalé vers le bas)."""
-        return cls.HAUTEUR // 2 + 50
+        """Retourne le centre Y de l'écran pour voir l'ensemble du cercle."""
+        # Calculer la position pour que le cercle entier soit visible
+        # En tenant compte de l'espace UI réduit en haut
+        ui_height = cls.get_ui_area_height()
+        available_height = cls.HAUTEUR - ui_height
+        return ui_height + available_height // 2
     
     @classmethod
     def get_ui_area_height(cls) -> float:
-        """Retourne la hauteur de la zone d'interface utilisateur (tiers supérieur)."""
-        return cls.HAUTEUR // 3
+        """Retourne la hauteur réduite de la zone d'interface utilisateur."""
+        return 200  # Zone UI plus compacte au lieu de HAUTEUR // 3 (427px)
 
 
 class SimplexNoise:
@@ -165,15 +173,27 @@ class Player:
         self.center_y = center_y
         self.circle_radius = circle_radius
         
-        # Position initiale aléatoire à l'intérieur du cercle
-        angle = random.uniform(0, 2 * math.pi)
-        distance = random.uniform(100, circle_radius * 0.7)  # Plus loin du centre
+        # Position initiale sur le périmètre du cercle, calculée selon l'ID du joueur
+        # Les joueurs sont espacés de manière égale sur le cercle
+        angle = (2 * math.pi * player_id) / Config.NOMBRE_PARTICIPANTS
+        distance = circle_radius * 0.85  # Près du bord mais pas sur le périmètre exact
         self.x = center_x + distance * math.cos(angle)
         self.y = center_y + distance * math.sin(angle)
         
-        # Vélocité pour le mouvement physique
-        self.vx = random.uniform(-50, 50)  # Vitesse initiale aléatoire
-        self.vy = random.uniform(-50, 50)
+        # Vélocité initiale dirigée vers le centre du cercle
+        # Calculer le vecteur vers le centre
+        dx_to_center = center_x - self.x
+        dy_to_center = center_y - self.y
+        distance_to_center = math.sqrt(dx_to_center * dx_to_center + dy_to_center * dy_to_center)
+        
+        # Normaliser et appliquer une vitesse initiale vers le centre
+        initial_speed = 100.0  # Vitesse initiale fixe
+        if distance_to_center > 0:
+            self.vx = (dx_to_center / distance_to_center) * initial_speed
+            self.vy = (dy_to_center / distance_to_center) * initial_speed
+        else:
+            self.vx = 0
+            self.vy = 0
         
         # Base pour le bruit de Perlin (force d'attraction/répulsion)
         self.noise_offset_x = random.uniform(0, 1000)
@@ -190,6 +210,10 @@ class Player:
         # Cibles possédées par ce joueur
         self.owned_targets: List[int] = []
         
+        # Position précédente pour détecter le franchissement des lignes
+        self.prev_x = self.x
+        self.prev_y = self.y
+        
     def update_position(self, time_factor: float, other_players: List['Player']):
         """Met à jour la position du joueur avec physique de rebond."""
         self.noise_time += time_factor * Config.VITESSE_MOUVEMENT_JOUEUR
@@ -204,14 +228,28 @@ class Player:
             self.noise_offset_y + self.noise_time
         )
         
-        # Appliquer les forces de bruit à la vélocité
+        # Appliquer les forces de bruit à la vélocité (plus subtiles pour maintenir la direction)
         force_x = noise_x * Config.AMPLITUDE_BRUIT_POSITION
         force_y = noise_y * Config.AMPLITUDE_BRUIT_POSITION
         
-        self.vx += force_x * time_factor
-        self.vy += force_y * time_factor
+        self.vx += force_x * time_factor * 0.2  # Influence très réduite du bruit
+        self.vy += force_y * time_factor * 0.2
         
-        # Répulsion entre joueurs
+        # Maintenir une vitesse minimale pour éviter l'arrêt complet
+        current_speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
+        min_speed = 30.0  # Vitesse minimale
+        
+        if current_speed < min_speed and current_speed > 0:
+            # Normaliser et appliquer la vitesse minimale
+            self.vx = (self.vx / current_speed) * min_speed
+            self.vy = (self.vy / current_speed) * min_speed
+        elif current_speed == 0:
+            # Si complètement arrêté, donner une direction aléatoire
+            angle = random.uniform(0, 2 * math.pi)
+            self.vx = math.cos(angle) * min_speed
+            self.vy = math.sin(angle) * min_speed
+        
+        # Répulsion entre joueurs avec accélération plus forte
         for other in other_players:
             if other.id != self.id:
                 dx = self.x - other.x
@@ -220,13 +258,17 @@ class Player:
                 
                 min_distance = (self.radius + other.radius) * 2.5
                 if distance < min_distance and distance > 0:
-                    # Force de répulsion
-                    force_magnitude = Config.FORCE_REPULSION_JOUEURS / (distance * distance)
+                    # Force de répulsion beaucoup plus forte lors des collisions entre joueurs
+                    force_magnitude = (Config.FORCE_REPULSION_JOUEURS * 3) / (distance * distance)  # 3x plus forte
                     force_x = (dx / distance) * force_magnitude
                     force_y = (dy / distance) * force_magnitude
                     
-                    self.vx += force_x * time_factor
-                    self.vy += force_y * time_factor
+                    # Accélération plus importante lors des collisions entre joueurs
+                    acceleration_factor = 2.5  # Accélération supplémentaire
+                    self.vx += force_x * time_factor * acceleration_factor
+                    self.vy += force_y * time_factor * acceleration_factor
+        
+
         
         # Limiter la vitesse maximum
         speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
@@ -239,29 +281,40 @@ class Player:
         new_x = self.x + self.vx * time_factor
         new_y = self.y + self.vy * time_factor
         
-        # Collision avec les parois du cercle
+        # Collision avec les parois du cercle (rebond plus fréquent)
         dx = new_x - self.center_x
         dy = new_y - self.center_y
         distance_from_center = math.sqrt(dx * dx + dy * dy)
         
-        max_distance = self.circle_radius - self.radius
+        # Réduire la marge pour des rebonds plus fréquents
+        max_distance = self.circle_radius - self.radius * 0.5  # Rebond plus tôt
         if distance_from_center > max_distance:
-            # Rebond sur la paroi
+            # Rebond sur la paroi avec variabilité réaliste
             # Normaliser le vecteur de position
             nx = dx / distance_from_center
             ny = dy / distance_from_center
             
-            # Projeter la vélocité sur la normale et la tangente
-            dot_product = self.vx * nx + self.vy * ny
+            # Calculer l'angle actuel de la vitesse
+            current_angle = math.atan2(self.vy, self.vx)
+            current_speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
             
-            # Réflexion de la vélocité avec coefficient de rebond
-            self.vx = (self.vx - 2 * dot_product * nx) * Config.COEFFICIENT_REBOND
-            self.vy = (self.vy - 2 * dot_product * ny) * Config.COEFFICIENT_REBOND
+            # Ajouter de la variabilité à l'angle de rebond (entre 160° et 200° au lieu de 180°)
+            angle_variation = random.uniform(-20, 20)  # ±20° de variation
+            target_angle = current_angle + math.pi + math.radians(angle_variation)  # ~180° ± 20°
+            
+            # Appliquer le nouveau vecteur de vitesse avec rebond énergique mais variable
+            bounce_coefficient = Config.COEFFICIENT_REBOND * random.uniform(0.85, 1.1)  # Variabilité dans le rebond
+            self.vx = math.cos(target_angle) * current_speed * bounce_coefficient
+            self.vy = math.sin(target_angle) * current_speed * bounce_coefficient
             
             # Repositionner le joueur à la limite
             factor = max_distance / distance_from_center
             new_x = self.center_x + dx * factor
             new_y = self.center_y + dy * factor
+        
+        # Sauvegarder la position précédente avant la mise à jour
+        self.prev_x = self.x
+        self.prev_y = self.y
         
         self.x = new_x
         self.y = new_y
@@ -387,13 +440,17 @@ class Target:
     
     def draw(self, screen: pygame.Surface, players: Dict[int, Player]):
         """Dessine la cible sur l'écran."""
+        # Taille adaptée au nombre de cibles (plus petites si plus nombreuses)
+        # On utilise un dict global pour compter les cibles, approximation avec players pour l'instant
+        base_radius = 3 if len(players) > 3 else 4  # Simple heuristique
+        
         # Couleur de base
         if self.owner_id is None:
             color = Config.COULEUR_CIBLE_LIBRE
-            radius = 4
+            radius = base_radius
         else:
             color = players[self.owner_id].color
-            radius = 5
+            radius = base_radius + 1
         
         # Effet de clignotement pour les contre-attaques
         if self.is_blinking and (pygame.time.get_ticks() // 100) % 2 == 0:
@@ -408,14 +465,15 @@ class Target:
             radius
         )
         
-        # Contour
-        pygame.draw.circle(
-            screen,
-            Config.COULEUR_TEXTE,
-            (int(self.x), int(self.y)),
-            radius,
-            1
-        )
+        # Contour seulement pour les cibles possédées ou en cours de clignotement
+        if self.owner_id is not None or self.is_blinking:
+            pygame.draw.circle(
+                screen,
+                Config.COULEUR_TEXTE,
+                (int(self.x), int(self.y)),
+                radius,
+                1
+            )
 
 
 class BattleGame:
@@ -463,6 +521,9 @@ class BattleGame:
         self.init_targets()
         self.create_background_surface()
         
+        # Attribution initiale des cibles
+        self.update_target_ownership()
+        
         print("Jeu initialisé avec succès !")
     
     def create_background_surface(self):
@@ -488,8 +549,12 @@ class BattleGame:
     
     def init_targets(self):
         """Initialise les cibles sur le périmètre du cercle."""
-        # Nombre de cibles proportionnel à la taille du cercle
-        num_targets = max(20, Config.TAILLE_CERCLE // 15)
+        # Calcul du nombre de cibles basé sur la circonférence et la densité configurée
+        circumference = 2 * math.pi * Config.TAILLE_CERCLE
+        num_targets = int(circumference * Config.DENSITE_CIBLES_PAR_PIXEL)
+        num_targets = max(Config.NOMBRE_MIN_CIBLES, num_targets)
+        
+        print(f"Création de {num_targets} cibles sur le cercle (circonférence: {circumference:.0f}px)")
         
         for i in range(num_targets):
             angle = (2 * math.pi * i) / num_targets
@@ -597,30 +662,140 @@ class BattleGame:
                     player2.x += nx * separation
                     player2.y += ny * separation
     
-    def update_target_ownership(self):
-        """Met à jour la propriété des cibles selon la logique du jeu."""
-        for target in self.targets.values():
-            closest_player_id = self.get_closest_player_to_target(target)
-            
-            if closest_player_id is not None:
-                current_owner = target.owner_id
+    def check_target_collisions(self):
+        """Vérifie si une cible touche l'extérieur du joueur (pas son centre)."""
+        for player in self.players.values():
+            # Vérifier la collision avec chaque cible
+            for target in self.targets.values():
+                # Calculer la distance entre le centre du joueur et la cible
+                dx = player.x - target.x
+                dy = player.y - target.y
+                distance = math.sqrt(dx * dx + dy * dy)
                 
-                # Si la cible change de propriétaire
-                if current_owner != closest_player_id:
-                    # Vérifier les zones d'interférence
-                    if not self.check_interference_zone(target, closest_player_id):
-                        # Appliquer la réduction de puissance à l'ancien propriétaire
-                        if current_owner is not None:
-                            self.players[current_owner].apply_power_reduction()
+                # La cible est capturée si elle touche l'extérieur du joueur
+                # Distance doit être <= rayon du joueur pour que la cible soit "à l'intérieur" du cercle du joueur
+                if distance <= player.radius:
+                    # Le joueur touche cette cible
+                    if target.owner_id != player.id:  # Si ce n'est pas déjà sa cible
+                        old_owner = target.owner_id
+                        target.set_owner(player.id)
                         
-                        # Changer de propriétaire
-                        target.set_owner(closest_player_id)
+                        # Ajouter des points au joueur qui a touché la cible
+                        player.add_score(1)
                         
-                        # Ajouter des points au nouveau propriétaire
-                        self.players[closest_player_id].add_score(1)
+                        # Appliquer une réduction de puissance à l'ancien propriétaire (si il y en avait un)
+                        if old_owner is not None:
+                            self.players[old_owner].apply_power_reduction()
                         
                         # Forcer la mise à jour de l'UI
                         self.ui_needs_update = True
+                        
+                        if old_owner is not None:
+                            print(f"Joueur {player.id + 1} touche une cible du joueur {old_owner + 1} !")
+                        else:
+                            print(f"Joueur {player.id + 1} touche une cible libre !")
+    
+    def check_line_crossings(self):
+        """Vérifie si un joueur a franchi une ligne appartenant à un autre joueur."""
+        for player in self.players.values():
+            # Vérifier le franchissement de chaque ligne (cible possédée par d'autres)
+            for target in self.targets.values():
+                if target.owner_id is not None and target.owner_id != player.id:
+                    # Vérifier si le joueur a traversé cette ligne
+                    if self.has_crossed_line(player, target):
+                        # Le joueur franchit une ligne ennemie - il gagne la ligne
+                        old_owner = target.owner_id
+                        target.set_owner(player.id)
+                        
+                        # Ajouter des points au joueur qui a franchi
+                        player.add_score(1)
+                        
+                        # Appliquer une réduction de puissance à l'ancien propriétaire
+                        if old_owner is not None:
+                            self.players[old_owner].apply_power_reduction()
+                        
+                        # Forcer la mise à jour de l'UI
+                        self.ui_needs_update = True
+                        
+                        print(f"Joueur {player.id + 1} franchit une ligne du joueur {old_owner + 1} !")
+    
+    def has_crossed_line(self, player: Player, target: Target) -> bool:
+        """Vérifie si le joueur (avec son rayon) a traversé une ligne."""
+        # Position actuelle et précédente du joueur
+        px1, py1 = player.prev_x, player.prev_y
+        px2, py2 = player.x, player.y
+        
+        # Position du propriétaire de la ligne et de la cible (ligne à traverser)
+        owner = self.players[target.owner_id]
+        ox, oy = owner.x, owner.y
+        tx, ty = target.x, target.y
+        
+        # Vérifier l'intersection entre le trajet du joueur et la ligne
+        # En tenant compte du rayon du joueur pour une détection plus sensible
+        if self.segments_intersect(px1, py1, px2, py2, ox, oy, tx, ty):
+            return True
+            
+        # Vérifier aussi si le joueur est maintenant assez proche de la ligne pour la "toucher"
+        # Distance du centre du joueur à la ligne
+        distance_to_line = self.point_to_line_distance(px2, py2, ox, oy, tx, ty)
+        return distance_to_line <= player.radius
+    
+    def segments_intersect(self, x1, y1, x2, y2, x3, y3, x4, y4) -> bool:
+        """Vérifie si deux segments de droite s'intersectent."""
+        # Calcul des déterminants pour l'intersection de segments
+        denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+        
+        if abs(denom) < 1e-10:  # Segments parallèles
+            return False
+        
+        t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+        u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+        
+        # Intersection si les deux paramètres sont entre 0 et 1
+        return 0 <= t <= 1 and 0 <= u <= 1
+    
+    def point_to_line_distance(self, px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+        """Calcule la distance d'un point à un segment de ligne."""
+        # Vecteur de la ligne
+        dx = x2 - x1
+        dy = y2 - y1
+        
+        # Si la ligne est un point
+        if dx == 0 and dy == 0:
+            return math.sqrt((px - x1)**2 + (py - y1)**2)
+        
+        # Paramètre t pour la projection du point sur la ligne
+        t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+        
+        # Limiter t entre 0 et 1 pour rester sur le segment
+        t = max(0, min(1, t))
+        
+        # Point le plus proche sur le segment
+        closest_x = x1 + t * dx
+        closest_y = y1 + t * dy
+        
+        # Distance du point au point le plus proche
+        return math.sqrt((px - closest_x)**2 + (py - closest_y)**2)
+    
+    def update_target_ownership(self):
+        """Attribution initiale d'une seule cible par joueur (seulement au début)."""
+        # Chaque joueur commence avec seulement une ligne - la cible la plus proche
+        for player_id, player in self.players.items():
+            closest_target = None
+            min_distance_sq = float('inf')
+            
+            # Trouver la cible la plus proche de ce joueur
+            for target in self.targets.values():
+                if target.owner_id is None:  # Seulement les cibles non attribuées
+                    distance_sq = (player.x - target.x) ** 2 + (player.y - target.y) ** 2
+                    if distance_sq < min_distance_sq:
+                        min_distance_sq = distance_sq
+                        closest_target = target
+            
+            # Attribuer cette cible au joueur
+            if closest_target is not None:
+                closest_target.set_owner(player_id)
+                print(f"Joueur {player_id + 1} commence avec 1 ligne")
     
     def handle_events(self):
         """Gère les événements pygame."""
@@ -656,11 +831,11 @@ class BattleGame:
         for target in self.targets.values():
             target.update_visual_effects()
         
-        # Mise à jour de la propriété des cibles (moins fréquente pour les performances)
-        self.target_update_counter += 1
-        if self.target_update_counter >= 2:  # Mise à jour tous les 2 frames
-            self.update_target_ownership()
-            self.target_update_counter = 0
+        # Vérification des collisions avec les cibles à chaque frame
+        self.check_target_collisions()
+        
+        # Vérification du franchissement des lignes à chaque frame
+        self.check_line_crossings()
         
         # Vérifier la condition de victoire
         self.check_victory_condition()
@@ -669,10 +844,12 @@ class BattleGame:
         """Vérifie si un joueur a atteint la condition de victoire."""
         for player in self.players.values():
             if player.score >= Config.CONDITION_VICTOIRE:
-                print(f"Joueur {player.id} remporte la partie avec {player.score} points !")
+                if not hasattr(self, 'victory_announced'):
+                    print(f"Joueur {player.id + 1} remporte la partie avec {player.score} points !")
+                    print("Appuyez sur Échap pour quitter ou fermez la fenêtre.")
+                    self.victory_announced = True
                 self.ui_needs_update = True  # Forcer la mise à jour de l'UI
-                # Pour l'instant, on continue le jeu
-                # self.running = False
+                # Le jeu continue pour l'affichage, mais la victoire est annoncée
     
     def draw_background(self):
         """Dessine l'arrière-plan optimisé."""
@@ -696,34 +873,29 @@ class BattleGame:
             2
         )
         
-        # Titre
-        title_text = self.font_large.render("Bataille de Lignes", True, Config.COULEUR_TEXTE)
-        title_rect = title_text.get_rect(center=(Config.LARGEUR // 2, 30))
+        # Titre plus compact
+        title_text = self.font_medium.render("Bataille de Lignes", True, Config.COULEUR_TEXTE)
+        title_rect = title_text.get_rect(center=(Config.LARGEUR // 2, 20))
         self.ui_surface.blit(title_text, title_rect)
         
-        # Scores des joueurs
-        score_y = 70
+        # Scores des joueurs plus compacts
+        score_y = 45
         for i, (player_id, player) in enumerate(self.players.items()):
-            # Couleur du joueur
-            color_rect = pygame.Rect(20, score_y + i * 35, 20, 20)
+            # Couleur du joueur (plus petite)
+            color_rect = pygame.Rect(15, score_y + i * 28, 15, 15)
             pygame.draw.rect(self.ui_surface, player.color, color_rect)
             pygame.draw.rect(self.ui_surface, Config.COULEUR_TEXTE, color_rect, 1)
             
-            # Score et informations
-            score_text = f"Joueur {player_id + 1}: {player.score}"
+            # Score et informations sur une seule ligne
+            score_text = f"J{player_id + 1}: {player.score}"
             if player.was_power_reduced:
                 score_text += " [AFFAIBLI]"
             
-            power_text = f"Puissance: {player.power_factor:.1f}"
-            
-            score_surface = self.font_medium.render(score_text, True, Config.COULEUR_TEXTE)
-            power_surface = self.font_small.render(power_text, True, Config.COULEUR_TEXTE)
-            
-            self.ui_surface.blit(score_surface, (50, score_y + i * 35))
-            self.ui_surface.blit(power_surface, (50, score_y + i * 35 + 18))
+            score_surface = self.font_small.render(score_text, True, Config.COULEUR_TEXTE)
+            self.ui_surface.blit(score_surface, (35, score_y + i * 28 + 2))
         
-        # Informations de configuration
-        config_y = ui_height - 80
+        # Informations de configuration plus compactes
+        config_y = ui_height - 50
         config_texts = [
             f"Objectif: {Config.CONDITION_VICTOIRE} | Mode: {Config.MODE_BATAILLE}",
             f"FPS: {self.current_fps} | Cibles: {len(self.targets)}"
@@ -750,9 +922,9 @@ class BattleGame:
         # Dessiner les lignes entre joueurs et leurs cibles
         self.draw_connections()
         
-        # Dessiner les cibles
-        for target in self.targets.values():
-            target.draw(self.screen, self.players)
+        # Ne plus dessiner les cibles (ronds) - seulement les lignes
+        # for target in self.targets.values():
+        #     target.draw(self.screen, self.players)
         
         # Dessiner les joueurs
         for player in self.players.values():
@@ -764,12 +936,12 @@ class BattleGame:
         pygame.display.flip()
     
     def draw_connections(self):
-        """Dessine les lignes de connexion entre joueurs et leurs cibles."""
+        """Dessine les lignes de connexion entre les joueurs et leurs cibles."""
         for target in self.targets.values():
             if target.owner_id is not None:
                 player = self.players[target.owner_id]
                 
-                # Épaisseur de ligne selon l'état
+                # Lignes très fines pour un effet visuel propre
                 thickness = Config.EPAISSEUR_LIGNE_NORMALE
                 if target.is_blinking:
                     thickness = Config.EPAISSEUR_LIGNE_CONTRE_ATTAQUE
@@ -779,7 +951,7 @@ class BattleGame:
                 if target.is_blinking and (pygame.time.get_ticks() // 100) % 2 == 0:
                     color = Config.COULEUR_CONTRE_ATTAQUE
                 
-                # Dessiner la ligne
+                # Dessiner la ligne du joueur vers sa cible
                 pygame.draw.line(
                     self.screen,
                     color,
