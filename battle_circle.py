@@ -19,8 +19,9 @@ class Config:
     """Classe de configuration centralisée pour tous les paramètres du jeu."""
     
     # Paramètres de jeu modifiables
-    NOMBRE_PARTICIPANTS: int = 3
+    NOMBRE_PARTICIPANTS: int = 4
     CONDITION_VICTOIRE: int = 200
+    DUREE_PARTIE: int = 60  # Durée de la partie en secondes (1 minute)
     VITESSE_JEU: float = 1.0  # tentatives/frame
     TAILLE_CERCLE: int = 350
     MODE_BATAILLE: str = "Interaction"  # "Proximité", "Influence", "Interaction"
@@ -64,8 +65,8 @@ class Config:
     FORCE_REPULSION_JOUEURS: float = 500.0
     
     # Paramètres visuels
-    DENSITE_CIBLES_PAR_PIXEL: float = 0.06  # Une cible tous les 16-17 pixels (environ 130 cibles)
-    NOMBRE_MIN_CIBLES: int = 40
+    DENSITE_CIBLES_PAR_PIXEL: float = 0.035  # Une cible tous les 35 pixels (environ 55 cibles)
+    NOMBRE_MIN_CIBLES: int = 30
     
     @classmethod
     def get_center_x(cls) -> float:
@@ -153,7 +154,7 @@ noise_generator = SimplexNoise()
 class Player:
     """Classe représentant un joueur dans la bataille de lignes."""
     
-    def __init__(self, player_id: int, color: Tuple[int, int, int], center_x: float, center_y: float, circle_radius: float):
+    def __init__(self, player_id: int, color: Tuple[int, int, int], center_x: float, center_y: float, circle_radius: float, total_players: int = Config.NOMBRE_PARTICIPANTS):
         """
         Initialise un joueur.
         
@@ -162,43 +163,54 @@ class Player:
             color: Couleur RGB du joueur
             center_x, center_y: Centre du cercle de jeu
             circle_radius: Rayon du cercle de jeu
+            total_players: Nombre total de joueurs (pour le calcul d'angle)
         """
         self.id = player_id
         self.color = color
+        self.name = f"Joueur {player_id + 1}"  # Nom par défaut
         self.score = 0
         self.power_factor = 1.0  # Facteur de puissance normal
+        self.is_eliminated = False  # État d'élimination
         
         # Positions et mouvement
         self.center_x = center_x
         self.center_y = center_y
         self.circle_radius = circle_radius
         
-        # Position initiale sur le périmètre du cercle, calculée selon l'ID du joueur
-        # Les joueurs sont espacés de manière égale sur le cercle
-        angle = (2 * math.pi * player_id) / Config.NOMBRE_PARTICIPANTS
-        distance = circle_radius * 0.85  # Près du bord mais pas sur le périmètre exact
+        # Position initiale sur le cercle avec légère variabilité
+        # Les joueurs sont espacés de manière égale sur le cercle avec petite variation d'angle
+        base_angle = (2 * math.pi * player_id) / total_players
+        angle_variation = random.uniform(-0.1, 0.1)  # ±0.1 radian de variation (~6°)
+        angle = base_angle + angle_variation
+        distance_variation = random.uniform(0.7, 0.8)  # Distance légèrement variable
+        distance = circle_radius * distance_variation
         self.x = center_x + distance * math.cos(angle)
         self.y = center_y + distance * math.sin(angle)
         
-        # Vélocité initiale dirigée vers le centre du cercle
-        # Calculer le vecteur vers le centre
-        dx_to_center = center_x - self.x
-        dy_to_center = center_y - self.y
+        # Vélocité initiale dirigée exactement vers le centre du cercle
+        # Chaque joueur part de sa position initiale directement vers le centre exact
+        dx_to_center = center_x - self.x  # Composante X vers le centre
+        dy_to_center = center_y - self.y  # Composante Y vers le centre
         distance_to_center = math.sqrt(dx_to_center * dx_to_center + dy_to_center * dy_to_center)
         
-        # Normaliser et appliquer une vitesse initiale vers le centre
-        initial_speed = 100.0  # Vitesse initiale fixe
+        # Normaliser le vecteur et appliquer la vitesse initiale vers le centre exact
+        initial_speed = 100.0  # Vitesse initiale identique pour tous
         if distance_to_center > 0:
+            # Direction normalisée vers le centre exact du cercle
             self.vx = (dx_to_center / distance_to_center) * initial_speed
             self.vy = (dy_to_center / distance_to_center) * initial_speed
         else:
+            # Cas improbable où le joueur serait déjà au centre
             self.vx = 0
             self.vy = 0
         
         # Base pour le bruit de Perlin (force d'attraction/répulsion)
-        self.noise_offset_x = random.uniform(0, 1000)
-        self.noise_offset_y = random.uniform(0, 1000)
-        self.noise_time = 0.0
+        # Créer un générateur de bruit unique pour chaque joueur avec seed très variable
+        base_seed = random.randint(1, 100000)  # Seed aléatoire de base
+        self.noise_generator = SimplexNoise(seed=player_id * 1000 + base_seed)  # Seed très variable
+        self.noise_offset_x = random.uniform(0, 5000)  # Offset beaucoup plus variable
+        self.noise_offset_y = random.uniform(0, 5000)  # Offset beaucoup plus variable
+        self.noise_time = random.uniform(0, 100)  # Démarrer à des temps différents
         
         # Rayon du joueur
         self.radius = Config.RAYON_JOUEUR
@@ -216,14 +228,19 @@ class Player:
         
     def update_position(self, time_factor: float, other_players: List['Player']):
         """Met à jour la position du joueur avec physique de rebond."""
+        # Ne pas mettre à jour les joueurs éliminés
+        if self.is_eliminated:
+            return
+            
         self.noise_time += time_factor * Config.VITESSE_MOUVEMENT_JOUEUR
         
         # Forces de bruit de Perlin (plus subtiles maintenant)
-        noise_x = noise_generator.noise(
+        # Utiliser le générateur de bruit individuel du joueur
+        noise_x = self.noise_generator.noise(
             self.noise_offset_x + self.noise_time,
             self.noise_offset_y
         )
-        noise_y = noise_generator.noise(
+        noise_y = self.noise_generator.noise(
             self.noise_offset_x,
             self.noise_offset_y + self.noise_time
         )
@@ -237,17 +254,27 @@ class Player:
         
         # Maintenir une vitesse minimale pour éviter l'arrêt complet
         current_speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
-        min_speed = 30.0  # Vitesse minimale
+        min_speed = 40.0  # Vitesse minimale légèrement augmentée
         
-        if current_speed < min_speed and current_speed > 0:
-            # Normaliser et appliquer la vitesse minimale
-            self.vx = (self.vx / current_speed) * min_speed
-            self.vy = (self.vy / current_speed) * min_speed
-        elif current_speed == 0:
-            # Si complètement arrêté, donner une direction aléatoire
-            angle = random.uniform(0, 2 * math.pi)
-            self.vx = math.cos(angle) * min_speed
-            self.vy = math.sin(angle) * min_speed
+        if current_speed < min_speed:
+            if current_speed > 0:
+                # Normaliser et appliquer la vitesse minimale
+                self.vx = (self.vx / current_speed) * min_speed
+                self.vy = (self.vy / current_speed) * min_speed
+            else:
+                # Si complètement arrêté, utiliser la direction initiale vers le centre
+                dx_to_center = self.center_x - self.x
+                dy_to_center = self.center_y - self.y
+                distance_to_center = math.sqrt(dx_to_center * dx_to_center + dy_to_center * dy_to_center)
+                
+                if distance_to_center > 0:
+                    self.vx = (dx_to_center / distance_to_center) * min_speed
+                    self.vy = (dy_to_center / distance_to_center) * min_speed
+                else:
+                    # Dernière option : direction aléatoire
+                    angle = random.uniform(0, 2 * math.pi)
+                    self.vx = math.cos(angle) * min_speed
+                    self.vy = math.sin(angle) * min_speed
         
         # Répulsion entre joueurs avec accélération plus forte
         for other in other_players:
@@ -301,9 +328,9 @@ class Player:
             # Ajouter de la variabilité à l'angle de rebond (entre 160° et 200° au lieu de 180°)
             angle_variation = random.uniform(-20, 20)  # ±20° de variation
             target_angle = current_angle + math.pi + math.radians(angle_variation)  # ~180° ± 20°
-            
-            # Appliquer le nouveau vecteur de vitesse avec rebond énergique mais variable
-            bounce_coefficient = Config.COEFFICIENT_REBOND * random.uniform(0.85, 1.1)  # Variabilité dans le rebond
+
+            # Appliquer le nouveau vecteur de vitesse avec rebond très variable
+            bounce_coefficient = Config.COEFFICIENT_REBOND * random.uniform(0.7, 1.3)  # Beaucoup plus de variabilité
             self.vx = math.cos(target_angle) * current_speed * bounce_coefficient
             self.vy = math.sin(target_angle) * current_speed * bounce_coefficient
             
@@ -341,8 +368,20 @@ class Player:
         """Ajoute des points au score du joueur."""
         self.score += points
     
+    def check_elimination(self, targets: Dict[int, 'Target']):
+        """Vérifie si le joueur doit être éliminé (plus de lignes)."""
+        owned_count = sum(1 for target in targets.values() if target.owner_id == self.id)
+        if owned_count == 0 and not self.is_eliminated:
+            self.is_eliminated = True
+            print(f"Joueur {self.id + 1} éliminé - plus de lignes !")
+        return self.is_eliminated
+    
     def draw(self, screen: pygame.Surface, font: pygame.font.Font):
         """Dessine le joueur sur l'écran."""
+        # Ne pas dessiner les joueurs éliminés
+        if self.is_eliminated:
+            return
+            
         # Taille dynamique selon l'état
         radius = int(self.radius) if not self.was_power_reduced else int(self.radius * 0.8)
         
@@ -362,18 +401,6 @@ class Player:
             radius,
             2
         )
-        
-        # Indicateur de vélocité (petite flèche)
-        if abs(self.vx) > 10 or abs(self.vy) > 10:
-            end_x = int(self.x + self.vx * 0.3)
-            end_y = int(self.y + self.vy * 0.3)
-            pygame.draw.line(
-                screen,
-                (255, 255, 255),
-                (int(self.x), int(self.y)),
-                (end_x, end_y),
-                2
-            )
         
         # Indicateur de puissance réduite
         if self.was_power_reduced:
@@ -476,13 +503,287 @@ class Target:
             )
 
 
+class ConfigScreen:
+    """Interface de configuration avant le jeu."""
+    
+    def __init__(self, screen):
+        """Initialise l'écran de configuration."""
+        self.screen = screen
+        
+        # Polices
+        self.font_large = pygame.font.Font(None, 48)
+        self.font_medium = pygame.font.Font(None, 32)
+        self.font_small = pygame.font.Font(None, 24)
+        
+        # État de l'interface
+        self.running = True
+        self.game_ready = False
+        self.user_interacted = False  # Pour s'assurer que l'utilisateur a interagi avant de démarrer
+        
+        # Configuration modifiable
+        self.num_players = 3
+        self.game_duration = 60
+        self.player_names = ["Joueur 1", "Joueur 2", "Joueur 3", "Joueur 4", "Joueur 5"]
+        self.player_colors = [
+            (255, 100, 100),  # Rouge
+            (100, 255, 100),  # Vert
+            (100, 100, 255),  # Bleu
+            (255, 255, 100),  # Jaune
+            (255, 100, 255),  # Magenta
+        ]
+        
+        # Couleurs disponibles pour sélection
+        self.available_colors = [
+            (255, 100, 100), (255, 200, 100), (255, 255, 100),  # Rouges/Oranges/Jaunes
+            (100, 255, 100), (100, 255, 200), (100, 255, 255),  # Verts/Cyans
+            (100, 100, 255), (200, 100, 255), (255, 100, 255),  # Bleus/Violets/Magentas
+            (255, 255, 255), (200, 200, 200), (150, 150, 150),  # Blancs/Gris
+        ]
+        
+        # Interface interactive
+        self.input_active = None  # Quel champ est en cours d'édition
+        self.input_text = ""
+        
+        # Boutons
+        self.buttons = {
+            'start': pygame.Rect(Config.LARGEUR // 2 - 100, Config.HAUTEUR - 100, 200, 50),
+            'players_minus': pygame.Rect(200, 200, 30, 30),
+            'players_plus': pygame.Rect(300, 200, 30, 30),
+            'time_minus': pygame.Rect(200, 250, 30, 30),
+            'time_plus': pygame.Rect(300, 250, 30, 30),
+        }
+        
+        # Boutons pour les noms de joueurs
+        for i in range(5):
+            self.buttons[f'name_{i}'] = pygame.Rect(50, 350 + i * 60, 200, 40)
+            self.buttons[f'color_{i}'] = pygame.Rect(260, 350 + i * 60, 40, 40)
+    
+    def handle_events(self):
+        """Gère les événements de l'interface."""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+                return
+            
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.running = False
+                    return
+                
+                # Gestion de la saisie de texte
+                if self.input_active is not None:
+                    if event.key == pygame.K_RETURN:
+                        # Valider la saisie
+                        if self.input_active.startswith('name_'):
+                            player_idx = int(self.input_active.split('_')[1])
+                            if self.input_text.strip():
+                                self.player_names[player_idx] = self.input_text.strip()
+                        self.input_active = None
+                        self.input_text = ""
+                    elif event.key == pygame.K_BACKSPACE:
+                        self.input_text = self.input_text[:-1]
+                    else:
+                        if len(self.input_text) < 20:  # Limite de caractères
+                            self.input_text += event.unicode
+            
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # Clic gauche
+                    mouse_pos = pygame.mouse.get_pos()
+                    self.handle_click(mouse_pos)
+    
+    def handle_click(self, pos):
+        """Gère les clics de souris."""
+        # Bouton Start
+        if self.buttons['start'].collidepoint(pos):
+            self.game_ready = True
+            return
+        
+        # Contrôles nombre de joueurs
+        if self.buttons['players_minus'].collidepoint(pos):
+            self.num_players = max(2, self.num_players - 1)
+            self.user_interacted = True
+        elif self.buttons['players_plus'].collidepoint(pos):
+            self.num_players = min(5, self.num_players + 1)
+            self.user_interacted = True
+        
+        # Contrôles durée
+        elif self.buttons['time_minus'].collidepoint(pos):
+            self.game_duration = max(30, self.game_duration - 30)
+            self.user_interacted = True
+        elif self.buttons['time_plus'].collidepoint(pos):
+            self.game_duration = min(300, self.game_duration + 30)
+            self.user_interacted = True
+        
+        # Noms et couleurs des joueurs
+        for i in range(5):
+            if self.buttons[f'name_{i}'].collidepoint(pos) and i < self.num_players:
+                self.input_active = f'name_{i}'
+                self.input_text = self.player_names[i]
+                self.user_interacted = True
+            elif self.buttons[f'color_{i}'].collidepoint(pos) and i < self.num_players:
+                # Changer la couleur du joueur
+                current_color_idx = self.available_colors.index(self.player_colors[i]) if self.player_colors[i] in self.available_colors else 0
+                next_color_idx = (current_color_idx + 1) % len(self.available_colors)
+                self.player_colors[i] = self.available_colors[next_color_idx]
+                self.user_interacted = True
+    
+    def draw(self):
+        """Dessine l'interface de configuration."""
+        # Fond
+        self.screen.fill((25, 25, 45))
+        
+        # Titre
+        title = self.font_large.render("Configuration", True, (255, 255, 255))
+        title_rect = title.get_rect(center=(Config.LARGEUR // 2, 80))
+        self.screen.blit(title, title_rect)
+        
+        # Nombre de joueurs
+        players_label = self.font_medium.render("Nombre de joueurs:", True, (255, 255, 255))
+        self.screen.blit(players_label, (50, 200))
+        
+        # Boutons +/-
+        pygame.draw.rect(self.screen, (100, 100, 100), self.buttons['players_minus'])
+        pygame.draw.rect(self.screen, (100, 100, 100), self.buttons['players_plus'])
+        minus_text = self.font_medium.render("-", True, (255, 255, 255))
+        plus_text = self.font_medium.render("+", True, (255, 255, 255))
+        self.screen.blit(minus_text, (210, 205))
+        self.screen.blit(plus_text, (310, 205))
+        
+        # Affichage du nombre
+        num_text = self.font_medium.render(str(self.num_players), True, (255, 255, 255))
+        self.screen.blit(num_text, (255, 205))
+        
+        # Durée de partie
+        time_label = self.font_medium.render("Durée (secondes):", True, (255, 255, 255))
+        self.screen.blit(time_label, (50, 250))
+        
+        pygame.draw.rect(self.screen, (100, 100, 100), self.buttons['time_minus'])
+        pygame.draw.rect(self.screen, (100, 100, 100), self.buttons['time_plus'])
+        self.screen.blit(minus_text, (210, 255))
+        self.screen.blit(plus_text, (310, 255))
+        
+        time_text = self.font_medium.render(str(self.game_duration), True, (255, 255, 255))
+        self.screen.blit(time_text, (255, 255))
+        
+        # Configuration des joueurs
+        players_title = self.font_medium.render("Configuration des joueurs:", True, (255, 255, 255))
+        self.screen.blit(players_title, (50, 320))
+        
+        for i in range(self.num_players):
+            y_pos = 350 + i * 60
+            
+            # Nom du joueur
+            name_color = (200, 200, 255) if self.input_active == f'name_{i}' else (255, 255, 255)
+            name_rect = self.buttons[f'name_{i}']
+            pygame.draw.rect(self.screen, (50, 50, 70), name_rect)
+            pygame.draw.rect(self.screen, name_color, name_rect, 2)
+            
+            display_name = self.input_text if self.input_active == f'name_{i}' else self.player_names[i]
+            name_surface = self.font_small.render(display_name, True, name_color)
+            self.screen.blit(name_surface, (name_rect.x + 5, name_rect.y + 10))
+            
+            # Couleur du joueur
+            color_rect = self.buttons[f'color_{i}']
+            pygame.draw.rect(self.screen, self.player_colors[i], color_rect)
+            pygame.draw.rect(self.screen, (255, 255, 255), color_rect, 2)
+        
+        # Bouton Start
+        start_color = (100, 200, 100)
+        pygame.draw.rect(self.screen, start_color, self.buttons['start'])
+        pygame.draw.rect(self.screen, (255, 255, 255), self.buttons['start'], 2)
+        start_text = self.font_medium.render("COMMENCER", True, (255, 255, 255))
+        start_rect = start_text.get_rect(center=self.buttons['start'].center)
+        self.screen.blit(start_text, start_rect)
+        
+        # Instructions
+        instruction_text = self.font_small.render("Configurez les paramètres puis cliquez sur COMMENCER", True, (200, 200, 200))
+        instruction_rect = instruction_text.get_rect(center=(Config.LARGEUR // 2, Config.HAUTEUR - 140))
+        self.screen.blit(instruction_text, instruction_rect)
+        
+        pygame.display.flip()
+    
+    def run(self):
+        """Boucle principale de l'interface de configuration."""
+        clock = pygame.time.Clock()
+        
+        while self.running and not self.game_ready:
+            self.handle_events()
+            self.draw()
+            clock.tick(60)
+        if self.game_ready:
+            return self.get_config()
+        else:
+            return None
+    
+    def get_config(self):
+        """Retourne la configuration choisie."""
+        return {
+            'num_players': self.num_players,
+            'duration': self.game_duration,
+            'player_names': self.player_names[:self.num_players],
+            'player_colors': self.player_colors[:self.num_players]
+        }
+
+
+class CountdownScreen:
+    """Écran de décompte avant le jeu."""
+    
+    def __init__(self, screen):
+        self.screen = screen
+        self.font_huge = pygame.font.Font(None, 120)
+        self.font_large = pygame.font.Font(None, 48)
+    
+    def show_countdown(self):
+        """Affiche le décompte de 3 secondes."""
+        for count in [3, 2, 1]:
+            # Effacer l'écran
+            self.screen.fill((25, 25, 45))
+            
+            # Afficher le nombre
+            count_text = self.font_huge.render(str(count), True, (255, 255, 100))
+            count_rect = count_text.get_rect(center=(Config.LARGEUR // 2, Config.HAUTEUR // 2))
+            self.screen.blit(count_text, count_rect)
+            
+            # Afficher "Préparez-vous !"
+            ready_text = self.font_large.render("Préparez-vous !", True, (255, 255, 255))
+            ready_rect = ready_text.get_rect(center=(Config.LARGEUR // 2, Config.HAUTEUR // 2 + 100))
+            self.screen.blit(ready_text, ready_rect)
+            
+            pygame.display.flip()
+            pygame.time.wait(1000)  # Attendre 1 seconde
+        
+        # Afficher "GO!"
+        self.screen.fill((25, 25, 45))
+        go_text = self.font_huge.render("GO!", True, (100, 255, 100))
+        go_rect = go_text.get_rect(center=(Config.LARGEUR // 2, Config.HAUTEUR // 2))
+        self.screen.blit(go_text, go_rect)
+        pygame.display.flip()
+        pygame.time.wait(500)  # Attendre 0.5 seconde
+    
+    def run(self):
+        """Lance le décompte."""
+        self.show_countdown()
+
+
 class BattleGame:
     """Classe principale du jeu de bataille de lignes sur cercle."""
     
-    def __init__(self):
+    def __init__(self, config=None):
         """Initialise le jeu et pygame."""
         pygame.init()
         pygame.font.init()
+        
+        # Configuration personnalisée ou par défaut
+        if config:
+            self.num_players = config['num_players']
+            self.game_duration = config['duration']
+            self.player_names = config['player_names']
+            self.player_colors = config['player_colors']
+        else:
+            self.num_players = Config.NOMBRE_PARTICIPANTS
+            self.game_duration = Config.DUREE_PARTIE
+            self.player_names = [f"Joueur {i+1}" for i in range(Config.NOMBRE_PARTICIPANTS)]
+            self.player_colors = Config.COULEURS_JOUEURS[:Config.NOMBRE_PARTICIPANTS]
         
         # Configuration de la fenêtre
         self.screen = pygame.display.set_mode((Config.LARGEUR, Config.HAUTEUR))
@@ -502,6 +803,12 @@ class BattleGame:
         self.last_fps_update = time.time()
         self.current_fps = 0
         
+        # Timer de partie
+        self.game_start_time = time.time()
+        self.remaining_time = self.game_duration
+        self.game_ended = False
+        self.winner_by_time = None
+        
         # Centre du cercle
         self.center_x = Config.get_center_x()
         self.center_y = Config.get_center_y()
@@ -516,6 +823,7 @@ class BattleGame:
         self.ui_surface = None
         self.ui_needs_update = True
         self.target_update_counter = 0  # Pour réduire la fréquence de mise à jour
+        self.last_ui_update = 0
         
         self.init_players()
         self.init_targets()
@@ -542,9 +850,13 @@ class BattleGame:
     
     def init_players(self):
         """Initialise les joueurs."""
-        for i in range(Config.NOMBRE_PARTICIPANTS):
-            color = Config.COULEURS_JOUEURS[i % len(Config.COULEURS_JOUEURS)]
-            player = Player(i, color, self.center_x, self.center_y, Config.TAILLE_CERCLE)
+        for i in range(self.num_players):
+            color = self.player_colors[i] if i < len(self.player_colors) else Config.COULEURS_JOUEURS[i % len(Config.COULEURS_JOUEURS)]
+            player = Player(i, color, self.center_x, self.center_y, Config.TAILLE_CERCLE, self.num_players)
+            if i < len(self.player_names):
+                player.name = self.player_names[i]
+            else:
+                player.name = f"Joueur {i+1}"
             self.players[i] = player
     
     def init_targets(self):
@@ -616,6 +928,10 @@ class BattleGame:
                 player1 = players_list[i]
                 player2 = players_list[j]
                 
+                # Ignorer les collisions avec les joueurs éliminés
+                if player1.is_eliminated or player2.is_eliminated:
+                    continue
+                
                 # Calculer la distance entre les joueurs
                 dx = player2.x - player1.x
                 dy = player2.y - player1.y
@@ -641,17 +957,33 @@ class BattleGame:
                     if dvn > 0:
                         continue
                     
-                    # Coefficient de restitution (rebond)
-                    e = Config.COEFFICIENT_REBOND
+                    # Collision avec variabilité aléatoire (160° à 200° au lieu de 180°)
                     
-                    # Impulsion de collision
-                    impulse = 2 * dvn / 2  # masses égales
+                    # Calculer les angles actuels des vitesses
+                    angle1 = math.atan2(player1.vy, player1.vx)
+                    angle2 = math.atan2(player2.vy, player2.vx)
+                    speed1 = math.sqrt(player1.vx * player1.vx + player1.vy * player1.vy)
+                    speed2 = math.sqrt(player2.vx * player2.vx + player2.vy * player2.vy)
+
+                    # Ajouter de la variabilité à l'angle de rebond (±20° autour de 180°)
+                    angle_variation1 = random.uniform(-20, 20)  # ±20° de variation
+                    angle_variation2 = random.uniform(-20, 20)  # ±20° de variation
+
+                    # Calculer les nouveaux angles avec variabilité
+                    new_angle1 = angle1 + math.pi + math.radians(angle_variation1)  # ~180° ± 20°
+                    new_angle2 = angle2 + math.pi + math.radians(angle_variation2)  # ~180° ± 20°
+
+                    # Coefficient de rebond avec beaucoup plus de variabilité
+                    bounce_factor1 = Config.COEFFICIENT_REBOND * random.uniform(0.6, 1.4)
+                    bounce_factor2 = Config.COEFFICIENT_REBOND * random.uniform(0.6, 1.4)
                     
-                    # Mettre à jour les vitesses
-                    player1.vx += impulse * nx * e
-                    player1.vy += impulse * ny * e
-                    player2.vx -= impulse * nx * e
-                    player2.vy -= impulse * ny * e
+                    # Appliquer les nouvelles vitesses avec l'accélération variable
+                    acceleration_factor1 = random.uniform(1.5, 3.5)  # Accélération variable pour le joueur 1
+                    acceleration_factor2 = random.uniform(1.5, 3.5)  # Accélération variable pour le joueur 2
+                    player1.vx = math.cos(new_angle1) * speed1 * bounce_factor1 * acceleration_factor1
+                    player1.vy = math.sin(new_angle1) * speed1 * bounce_factor1 * acceleration_factor1
+                    player2.vx = math.cos(new_angle2) * speed2 * bounce_factor2 * acceleration_factor2
+                    player2.vy = math.sin(new_angle2) * speed2 * bounce_factor2 * acceleration_factor2
                     
                     # Séparer les joueurs pour éviter l'interpénétration
                     overlap = min_distance - distance
@@ -665,6 +997,10 @@ class BattleGame:
     def check_target_collisions(self):
         """Vérifie si une cible touche l'extérieur du joueur (pas son centre)."""
         for player in self.players.values():
+            # Ignorer les joueurs éliminés
+            if player.is_eliminated:
+                continue
+                
             # Vérifier la collision avec chaque cible
             for target in self.targets.values():
                 # Calculer la distance entre le centre du joueur et la cible
@@ -698,9 +1034,15 @@ class BattleGame:
     def check_line_crossings(self):
         """Vérifie si un joueur a franchi une ligne appartenant à un autre joueur."""
         for player in self.players.values():
-            # Vérifier le franchissement de chaque ligne (cible possédée par d'autres)
+            # Ignorer les joueurs éliminés
+            if player.is_eliminated:
+                continue
+                
+            # Vérifier le franchissement de chaque ligne (cible possédée par d'autres joueurs actifs)
             for target in self.targets.values():
-                if target.owner_id is not None and target.owner_id != player.id:
+                if (target.owner_id is not None and 
+                    target.owner_id != player.id and 
+                    not self.players[target.owner_id].is_eliminated):
                     # Vérifier si le joueur a traversé cette ligne
                     if self.has_crossed_line(player, target):
                         # Le joueur franchit une ligne ennemie - il gagne la ligne
@@ -710,8 +1052,8 @@ class BattleGame:
                         # Ajouter des points au joueur qui a franchi
                         player.add_score(1)
                         
-                        # Appliquer une réduction de puissance à l'ancien propriétaire
-                        if old_owner is not None:
+                        # Appliquer une réduction de puissance à l'ancien propriétaire (seulement s'il n'est pas éliminé)
+                        if old_owner is not None and not self.players[old_owner].is_eliminated:
                             self.players[old_owner].apply_power_reduction()
                         
                         # Forcer la mise à jour de l'UI
@@ -818,27 +1160,48 @@ class BattleGame:
             self.frame_count = 0
             self.last_fps_update = current_time
         
-        # Mise à jour des joueurs avec interactions
-        players_list = list(self.players.values())
-        for player in players_list:
-            player.update_position(1.0 / Config.FPS, players_list)
-            player.update_power_reduction()
+        # Mise à jour du timer
+        if not self.game_ended:
+            self.remaining_time = self.game_duration - (current_time - self.game_start_time)
+            if self.remaining_time <= 0:
+                self.remaining_time = 0
+                self.game_ended = True
+                self.determine_winner_by_time()
+                self.ui_needs_update = True
         
-        # Gestion des collisions directes entre joueurs
-        self.handle_player_collisions()
+        # Mise à jour des joueurs avec interactions (seulement si le jeu n'est pas terminé)
+        if not self.game_ended:
+            players_list = list(self.players.values())
+            for player in players_list:
+                player.update_position(1.0 / Config.FPS, players_list)
+                player.update_power_reduction()
+            
+            # Gestion des collisions directes entre joueurs
+            self.handle_player_collisions()
+            
+            # Vérification des collisions avec les cibles à chaque frame
+            self.check_target_collisions()
+            
+            # Vérification du franchissement des lignes à chaque frame
+            self.check_line_crossings()
         
-        # Mise à jour des cibles
+        # Mise à jour des cibles (pour les effets visuels même quand le jeu est fini)
         for target in self.targets.values():
             target.update_visual_effects()
         
-        # Vérification des collisions avec les cibles à chaque frame
-        self.check_target_collisions()
-        
-        # Vérification du franchissement des lignes à chaque frame
-        self.check_line_crossings()
+        # Vérifier l'élimination des joueurs
+        self.check_player_elimination()
         
         # Vérifier la condition de victoire
         self.check_victory_condition()
+    
+    def check_player_elimination(self):
+        """Vérifie et élimine les joueurs qui n'ont plus de lignes."""
+        for player in self.players.values():
+            if not player.is_eliminated:
+                if player.check_elimination(self.targets):
+                    # Forcer la mise à jour de l'UI quand un joueur est éliminé
+                    self.ui_needs_update = True
     
     def check_victory_condition(self):
         """Vérifie si un joueur a atteint la condition de victoire."""
@@ -848,8 +1211,22 @@ class BattleGame:
                     print(f"Joueur {player.id + 1} remporte la partie avec {player.score} points !")
                     print("Appuyez sur Échap pour quitter ou fermez la fenêtre.")
                     self.victory_announced = True
+                    self.game_ended = True  # Arrêter complètement le jeu
                 self.ui_needs_update = True  # Forcer la mise à jour de l'UI
-                # Le jeu continue pour l'affichage, mais la victoire est annoncée
+    
+    def determine_winner_by_time(self):
+        """Détermine le gagnant quand le temps est écoulé."""
+        if not hasattr(self, 'victory_announced'):
+            # Trouver le joueur avec le score le plus élevé
+            active_players = [p for p in self.players.values() if not p.is_eliminated]
+            if active_players:
+                winner = max(active_players, key=lambda p: p.score)
+                self.winner_by_time = winner.id
+                print(f"Temps écoulé ! Joueur {winner.id + 1} remporte la partie avec {winner.score} points !")
+                print("Appuyez sur Échap pour quitter ou fermez la fenêtre.")
+            else:
+                print("Temps écoulé ! Aucun joueur actif.")
+            self.victory_announced = True
     
     def draw_background(self):
         """Dessine l'arrière-plan optimisé."""
@@ -878,8 +1255,24 @@ class BattleGame:
         title_rect = title_text.get_rect(center=(Config.LARGEUR // 2, 20))
         self.ui_surface.blit(title_text, title_rect)
         
+        # Affichage du timer
+        if hasattr(self, 'remaining_time'):
+            minutes = int(self.remaining_time // 60)
+            seconds = int(self.remaining_time % 60)
+            timer_text = f"Temps: {minutes:02d}:{seconds:02d}"
+            
+            # Couleur rouge si moins de 30 secondes
+            timer_color = (255, 100, 100) if self.remaining_time < 30 else Config.COULEUR_TEXTE
+            if self.game_ended and hasattr(self, 'winner_by_time'):
+                timer_text = "TEMPS ÉCOULÉ"
+                timer_color = (255, 255, 100)  # Jaune pour indiquer la fin
+            
+            timer_surface = self.font_small.render(timer_text, True, timer_color)
+            timer_rect = timer_surface.get_rect(center=(Config.LARGEUR // 2, 35))
+            self.ui_surface.blit(timer_surface, timer_rect)
+        
         # Scores des joueurs plus compacts
-        score_y = 45
+        score_y = 55
         for i, (player_id, player) in enumerate(self.players.items()):
             # Couleur du joueur (plus petite)
             color_rect = pygame.Rect(15, score_y + i * 28, 15, 15)
@@ -887,11 +1280,19 @@ class BattleGame:
             pygame.draw.rect(self.ui_surface, Config.COULEUR_TEXTE, color_rect, 1)
             
             # Score et informations sur une seule ligne
-            score_text = f"J{player_id + 1}: {player.score}"
-            if player.was_power_reduced:
+            score_text = f"{player.name}: {player.score}"
+            if player.is_eliminated:
+                score_text += " [ÉLIMINÉ]"
+                # Griser la couleur du joueur éliminé
+                gray_color = (100, 100, 100)
+                pygame.draw.rect(self.ui_surface, gray_color, color_rect)
+                pygame.draw.rect(self.ui_surface, Config.COULEUR_TEXTE, color_rect, 1)
+            elif player.was_power_reduced:
                 score_text += " [AFFAIBLI]"
             
-            score_surface = self.font_small.render(score_text, True, Config.COULEUR_TEXTE)
+            # Couleur du texte grisée pour les joueurs éliminés
+            text_color = (150, 150, 150) if player.is_eliminated else Config.COULEUR_TEXTE
+            score_surface = self.font_small.render(score_text, True, text_color)
             self.ui_surface.blit(score_surface, (35, score_y + i * 28 + 2))
         
         # Informations de configuration plus compactes
@@ -907,10 +1308,13 @@ class BattleGame:
     
     def draw_ui(self):
         """Dessine l'interface utilisateur optimisée."""
-        # Recréer l'UI seulement si nécessaire
-        if self.ui_needs_update or self.ui_surface is None:
+        # Recréer l'UI seulement si nécessaire ou toutes les secondes pour le timer
+        current_time = time.time()
+        if (self.ui_needs_update or self.ui_surface is None or 
+            (hasattr(self, 'last_ui_update') and current_time - self.last_ui_update >= 1.0)):
             self.create_ui_surface()
             self.ui_needs_update = False
+            self.last_ui_update = current_time
         
         # Dessiner la surface UI mise en cache
         self.screen.blit(self.ui_surface, (0, 0))
@@ -930,10 +1334,72 @@ class BattleGame:
         for player in self.players.values():
             player.draw(self.screen, self.font_small)
         
+        # Dessiner la popup du vainqueur si le jeu est terminé
+        if self.game_ended:
+            self.draw_winner_popup()
+        
         # Dessiner l'interface utilisateur par-dessus
         self.draw_ui()
         
         pygame.display.flip()
+    
+    def draw_winner_popup(self):
+        """Dessine la popup du vainqueur au centre du cercle."""
+        # Déterminer le message du vainqueur
+        winner_text = ""
+        if hasattr(self, 'winner_by_time') and self.winner_by_time is not None:
+            # Victoire par temps
+            winner_player = self.players[self.winner_by_time]
+            winner_text = f"VAINQUEUR: {winner_player.name.upper()}"
+            score_text = f"Score: {winner_player.score}"
+        else:
+            # Victoire par score ou élimination
+            active_players = [p for p in self.players.values() if not p.is_eliminated]
+            if active_players:
+                winner = max(active_players, key=lambda p: p.score)
+                winner_text = f"VAINQUEUR: {winner.name.upper()}"
+                score_text = f"Score: {winner.score}"
+            else:
+                winner_text = "PARTIE TERMINÉE"
+                score_text = ""
+        
+        # Calculer la position de la popup (centre du cercle)
+        popup_center_x = self.center_x
+        popup_center_y = self.center_y
+        
+        # Dimensions de la popup
+        popup_width = 300
+        popup_height = 120
+        popup_x = popup_center_x - popup_width // 2
+        popup_y = popup_center_y - popup_height // 2
+        
+        # Dessiner le fond de la popup avec transparence
+        popup_surface = pygame.Surface((popup_width, popup_height))
+        popup_surface.set_alpha(220)  # Transparence
+        popup_surface.fill((40, 40, 60))  # Fond sombre
+        
+        # Bordure
+        pygame.draw.rect(popup_surface, (255, 255, 255), (0, 0, popup_width, popup_height), 3)
+        
+        # Texte du vainqueur
+        winner_surface = self.font_medium.render(winner_text, True, (255, 255, 100))  # Jaune
+        winner_rect = winner_surface.get_rect(center=(popup_width // 2, 30))
+        popup_surface.blit(winner_surface, winner_rect)
+        
+        # Texte du score (si disponible)
+        if score_text:
+            score_surface = self.font_small.render(score_text, True, (255, 255, 255))
+            score_rect = score_surface.get_rect(center=(popup_width // 2, 60))
+            popup_surface.blit(score_surface, score_rect)
+        
+        # Instructions
+        instruction_text = "Appuyez sur Échap pour quitter"
+        instruction_surface = self.font_small.render(instruction_text, True, (200, 200, 200))
+        instruction_rect = instruction_surface.get_rect(center=(popup_width // 2, 90))
+        popup_surface.blit(instruction_surface, instruction_rect)
+        
+        # Dessiner la popup sur l'écran
+        self.screen.blit(popup_surface, (popup_x, popup_y))
     
     def draw_connections(self):
         """Dessine les lignes de connexion entre les joueurs et leurs cibles."""
@@ -979,19 +1445,35 @@ class BattleGame:
 def main():
     """Point d'entrée principal de l'application."""
     print("=== Bataille de Lignes sur Cercle ===")
-    print(f"Configuration actuelle :")
-    print(f"- Participants : {Config.NOMBRE_PARTICIPANTS}")
-    print(f"- Condition de victoire : {Config.CONDITION_VICTOIRE}")
-    print(f"- Vitesse de jeu : {Config.VITESSE_JEU}")
-    print(f"- Taille du cercle : {Config.TAILLE_CERCLE}")
-    print(f"- Mode de bataille : {Config.MODE_BATAILLE}")
-    print(f"- Résolution : {Config.LARGEUR}x{Config.HAUTEUR}")
-    print(f"- FPS cible : {Config.FPS}")
+    print("Lancement de l'interface de configuration...")
     print()
     
     try:
-        game = BattleGame()
+        # Initialiser Pygame
+        pygame.init()
+        pygame.mixer.init()
+        screen = pygame.display.set_mode((Config.LARGEUR, Config.HAUTEUR))
+        pygame.display.set_caption("Battle Circle - Configuration")
+        
+        # Afficher l'écran de configuration
+        config_screen = ConfigScreen(screen)
+        game_config = config_screen.run()
+        
+        if game_config is None:
+            # L'utilisateur a fermé la fenêtre pendant la configuration
+            pygame.quit()
+            return
+        
+        # Afficher le compte à rebours
+        pygame.display.set_caption("Battle Circle - Préparez-vous!")
+        countdown_screen = CountdownScreen(screen)
+        countdown_screen.run()
+        
+        # Lancer le jeu avec la configuration personnalisée
+        pygame.display.set_caption("Battle Circle - En cours...")
+        game = BattleGame(config=game_config)
         game.run()
+        
     except Exception as e:
         print(f"Erreur lors de l'exécution du jeu : {e}")
         pygame.quit()
