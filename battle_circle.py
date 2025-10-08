@@ -183,44 +183,44 @@ class SoundManager:
         return pygame.sndarray.make_sound(wave_array)
     
     def _create_end_game_alert_sound(self) -> pygame.mixer.Sound:
-        """Crée un son d'alerte dramatique pour la fin de jeu."""
+        """Crée un son d'alerte adouci pour la fin de jeu."""
         duration = 1.0  # 1 seconde
         frames = int(duration * self.sample_rate)
         
         t = np.linspace(0, duration, frames, False)
         
-        # Son d'alerte avec pulsations rythmées
-        base_freq = 800  # Fréquence de base
+        # Son d'alerte plus doux avec fréquence réduite
+        base_freq = 500  # Fréquence plus grave (était 800)
         
-        # Pulsations à 3 Hz (3 battements par seconde)
-        pulsation = 0.5 + 0.5 * np.sin(2 * np.pi * 3 * t)
+        # Pulsations plus douces à 2 Hz (2 battements par seconde)
+        pulsation = 0.6 + 0.4 * np.sin(2 * np.pi * 2 * t)  # Moins contrasté
         
-        # Onde principale
+        # Onde principale plus douce
         wave = np.sin(2 * np.pi * base_freq * t)
         
-        # Ajout d'harmoniques pour urgence
-        wave += 0.6 * np.sin(2 * np.pi * base_freq * 2 * t)  # Octave
-        wave += 0.3 * np.sin(2 * np.pi * base_freq * 3 * t)  # Quinte
+        # Harmoniques réduites pour moins de stridence
+        wave += 0.3 * np.sin(2 * np.pi * base_freq * 2 * t)  # Octave réduite
+        wave += 0.1 * np.sin(2 * np.pi * base_freq * 3 * t)  # Quinte très réduite
         
         # Application des pulsations
         wave = wave * pulsation
         
-        # Modulation de fréquence pour effet d'urgence
-        freq_mod = 1 + 0.1 * np.sin(2 * np.pi * 7 * t)  # Vibrato d'urgence
+        # Modulation de fréquence plus subtile
+        freq_mod = 1 + 0.05 * np.sin(2 * np.pi * 4 * t)  # Vibrato plus doux et lent
         phase_mod = 2 * np.pi * base_freq * np.cumsum(freq_mod) / self.sample_rate
         wave_mod = np.sin(phase_mod) * pulsation
         
-        # Mélange des deux effets
-        wave = 0.7 * wave + 0.3 * wave_mod
+        # Mélange plus équilibré
+        wave = 0.8 * wave + 0.2 * wave_mod
         
-        # Enveloppe avec montée progressive
-        envelope = np.minimum(1.0, t * 4)  # Montée sur 0.25 secondes
-        envelope = np.minimum(envelope, np.linspace(1, 0.8, frames))  # Légère diminution
+        # Enveloppe plus douce
+        envelope = np.minimum(1.0, t * 3)  # Montée plus lente sur 0.33 secondes
+        envelope = np.minimum(envelope, np.linspace(1, 0.7, frames))  # Diminution plus douce
         
         wave = wave * envelope
         
-        # Volume élevé pour priorité
-        wave = np.clip(wave * 0.8, -1, 1)
+        # Volume réduit pour moins d'agression
+        wave = np.clip(wave * 0.5, -1, 1)  # Volume réduit de 0.8 à 0.5
         stereo_wave = np.column_stack([wave, wave])
         
         # Conversion en format pygame
@@ -246,11 +246,11 @@ class SoundManager:
         """Joue le son d'élimination."""
         self.play_sound('elimination', volume)
     
-    def play_line_steal(self, volume: float = 0.4):
+    def play_line_steal(self, volume: float = 0.2):
         """Joue le son de vol de ligne."""
         self.play_sound('line_steal', volume)
     
-    def play_end_game_alert(self, volume: float = 1.0):
+    def play_end_game_alert(self, volume: float = 0.8):
         """Joue le son d'alerte de fin de jeu (prioritaire)."""
         # Arrêter tous les autres sons avant de jouer l'alerte
         pygame.mixer.stop()
@@ -400,7 +400,7 @@ class Config:
     """Classe de configuration centralisée pour tous les paramètres du jeu."""
     
     # Paramètres de jeu modifiables
-    NOMBRE_PARTICIPANTS: int = 4
+    NOMBRE_PARTICIPANTS: int = 6
     CONDITION_VICTOIRE: int = 200
     DUREE_PARTIE: int = 60  # Durée de la partie en secondes (1 minute)
     VITESSE_JEU: float = 1.0  # tentatives/frame
@@ -426,6 +426,7 @@ class Config:
         (100, 100, 255),  # Bleu
         (255, 255, 100),  # Jaune
         (255, 100, 255),  # Magenta
+        (100, 255, 255),  # Cyan
     ]
     
     # Paramètres de gameplay avancés
@@ -936,13 +937,14 @@ class ConfigScreen:
         # Configuration modifiable
         self.num_players = 3
         self.game_duration = 60
-        self.player_names = ["Joueur 1", "Joueur 2", "Joueur 3", "Joueur 4", "Joueur 5"]
+        self.player_names = ["Joueur 1", "Joueur 2", "Joueur 3", "Joueur 4", "Joueur 5", "Joueur 6"]
         self.player_colors = [
             (255, 100, 100),  # Rouge
             (100, 255, 100),  # Vert
             (100, 100, 255),  # Bleu
             (255, 255, 100),  # Jaune
             (255, 100, 255),  # Magenta
+            (100, 255, 255),  # Cyan
         ]
         
         # Couleurs disponibles pour sélection
@@ -1030,7 +1032,7 @@ class ConfigScreen:
             self.num_players = max(2, self.num_players - 1)
             self.user_interacted = True
         elif self.buttons['players_plus'].collidepoint(pos):
-            self.num_players = min(5, self.num_players + 1)
+            self.num_players = min(6, self.num_players + 1)
             self.user_interacted = True
         
         # Contrôles durée
