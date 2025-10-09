@@ -63,7 +63,7 @@ Le jeu démarre automatiquement avec l'interface de configuration où vous pouve
 Le jeu propose une interface graphique complète pour configurer chaque partie :
 
 #### 🎯 Paramètres de Base
-- **Nombre de joueurs** : 2 à 4 joueurs
+- **Nombre de joueurs** : 2 à 6 joueurs
 - **Durée de partie** : 30 secondes à 5 minutes
 - **Noms personnalisés** pour chaque joueur
 - **Couleurs personnalisées** avec sélecteur intuitif
@@ -71,7 +71,7 @@ Le jeu propose une interface graphique complète pour configurer chaque partie :
 #### 🔧 Paramètres Avancés (Classe Config)
 ```python
 # Paramètres de jeu
-NOMBRE_PARTICIPANTS = 4          # Nombre maximum de joueurs
+NOMBRE_PARTICIPANTS = 6          # Nombre maximum de joueurs
 DUREE_PARTIE = 120              # Durée par défaut (secondes)
 TAILLE_CERCLE = 350             # Rayon du cercle de bataille
 
@@ -147,7 +147,7 @@ VOLUME_ALERTE_FIN = 1.0         # Volume de l'alerte (prioritaire)
 - **Idéal pour** : Parties complètes, enregistrements
 
 ### 🎥 Mode Enregistrement (1-2 minutes)
-- **4 joueurs** pour maximum de spectacle
+- **4-6 joueurs** pour maximum de spectacle
 - **Noms courts** pour meilleure lisibilité
 - **Couleurs contrastées** pour distinction claire
 
@@ -228,7 +228,7 @@ volume = 0.5        # Volume (0.0 à 1.0)
 ✅ **Système d'élimination et timer**  
 ✅ **Animations et effets visuels**  
 ✅ **Optimisations de performance**  
-✅ **Support multi-joueurs (2-4)**  
+✅ **Support multi-joueurs (2-6)**  
 ✅ **Format vidéo 9:16 optimisé**  
 
 ## 📄 Licence
@@ -252,7 +252,7 @@ Crédit apprécié mais non obligatoire.
 - ✅ **Interface utilisateur optimisée** avec scores près du cercle
 - ✅ **Accélération progressive** pour maintenir l'intensité
 - ✅ **Optimisations de performance** pour 60 FPS garantis
-- ✅ **Support multi-joueurs** complet (2-4 joueurs)
+- ✅ **Support multi-joueurs** complet (2-6 joueurs)
 - ✅ **Documentation complète** avec guide d'utilisation
 
 ### 🔧 Améliorations Techniques
